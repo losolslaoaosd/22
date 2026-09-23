@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#080d1a" />
+  <meta name="description" content="BLUFIN+ - анализ графиков по скриншоту для пользователей Binodex." />
+  <title>BLUFIN+ | Анализ графика</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="./pages-config.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <div class="app-shell">
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="BLUFIN+ - на главную"><span class="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 23h5l4-8 5 4 5-11 5 3"/><path d="M23 11h5V6"/></svg></span><span>BLUFIN<span class="brand-plus">+</span></span></a>
+      <div class="header-right"><span class="time-chip"><span class="live-dot"></span><span id="moscow-time">00:00:00</span><span class="muted">МСК</span></span><span id="account-chip" class="account-chip hidden"></span></div>
+    </header>
+
+    <main>
+      <p id="preview-banner" class="preview-banner hidden" role="status">Это предпросмотр. Проверка ID, депозита и анализ будут доступны после подключения Cloudflare Workers.</p>
+      <section id="landing" class="landing view hidden">
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <div class="eyebrow"><span class="eyebrow-line"></span> ИНСТРУМЕНТ ДЛЯ АНАЛИЗА ГРАФИКОВ</div>
+            <h1>Меньше догадок.<br /><span>Больше ясности.</span></h1>
+            <p class="hero-lead">Загрузите скриншот графика, выберите актив и экспирацию. BLUFIN+ разберёт видимую ситуацию и покажет возможный сценарий или предложит пропустить сделку.</p>
+            <div class="hero-actions"><button id="begin-button" class="button primary large" type="button">Получить доступ <span aria-hidden="true">↗</span></button><span class="under-button">Для аккаунтов Binodex, зарегистрированных по нашей ссылке</span></div>
+            <div class="hero-points"><span><span class="point-icon">01</span> Скриншот графика</span><span><span class="point-icon">02</span> Разбор ситуации</span><span><span class="point-icon">03</span> Сценарий сделки</span></div>
+          </div>
+          <div class="hero-visual" aria-hidden="true">
+            <div class="chart-panel">
+              <div class="chart-top"><span>ПРИМЕР ГРАФИКА</span><span class="chart-period">M5 <i></i> ДЕМО</span></div>
+              <div class="chart-stage"><div class="price-grid"></div><div class="candles">
+                <i style="--x:7%;--y:58%;--h:51px;--wick:75px" class="up"></i><i style="--x:14%;--y:53%;--h:34px;--wick:57px" class="up"></i><i style="--x:21%;--y:49%;--h:39px;--wick:70px" class="down"></i><i style="--x:28%;--y:43%;--h:48px;--wick:80px" class="up"></i><i style="--x:35%;--y:36%;--h:53px;--wick:78px" class="up"></i><i style="--x:42%;--y:41%;--h:41px;--wick:67px" class="down"></i><i style="--x:49%;--y:47%;--h:36px;--wick:65px" class="down"></i><i style="--x:56%;--y:39%;--h:55px;--wick:83px" class="up"></i><i style="--x:63%;--y:31%;--h:50px;--wick:77px" class="up"></i><i style="--x:70%;--y:36%;--h:40px;--wick:64px" class="down"></i><i style="--x:77%;--y:27%;--h:61px;--wick:85px" class="up"></i><i style="--x:84%;--y:23%;--h:43px;--wick:70px" class="up"></i><i style="--x:91%;--y:28%;--h:34px;--wick:61px" class="down"></i>
+              </div><div class="chart-now">ДЕМО</div></div>
+              <div class="chart-bottom"><span>СНИМОК РЫНКА</span><span>09:15 <i></i> 09:30 <i></i> 09:45</span></div>
+            </div>
+            <div class="floating-result"><div class="floating-icon">↗</div><div><span>ПРИМЕР ИНТЕРФЕЙСА</span><strong>Вверх или пропустить?</strong><small>Ответ зависит от того, что видно на графике</small></div></div>
+          </div>
+        </div>
+        <div class="benefit-row"><div><span>01 /</span><strong>Загружаете график</strong><p>Подойдёт читаемый скриншот с видимым активом и таймфреймом.</p></div><div><span>02 /</span><strong>Выбираете параметры</strong><p>Укажите актив и экспирацию: 1, 3, 5 или 15 минут.</p></div><div><span>03 /</span><strong>Получаете разбор</strong><p>Сценарий вверх, вниз или «Пропустить», если данных мало.</p></div></div>
+      </section>
+
+      <section id="access" class="access view hidden">
+        <div class="step-caption">ШАГ 01 / 02 <span class="step-line"></span> ПРОВЕРКА АККАУНТА</div>
+        <div class="access-grid"><div class="access-primary"><div class="section-icon">◎</div><h1>Подключите<br /><span>свой аккаунт</span></h1><p class="section-lead">Для доступа нужен аккаунт Binodex, зарегистрированный по ссылке BLUFIN+. Если вы уже зарегистрировались, введите свой ID.</p>
+            <form id="id-form" class="access-form"><label for="account-id">ID аккаунта Binodex</label><div class="input-wrap"><span>#</span><input id="account-id" name="accountId" inputmode="numeric" placeholder="Например, 12345678" autocomplete="off" minlength="3" maxlength="64" required /></div><button class="button primary" type="submit">Проверить ID <span aria-hidden="true">→</span></button></form>
+            <div id="id-message" class="form-message hidden" role="alert"></div>
+            <div class="access-divider"><span>ЕЩЁ НЕТ АККАУНТА?</span></div><a class="button secondary" href="/go" data-registration-link target="_blank" rel="noopener noreferrer">Зарегистрироваться в Binodex <span aria-hidden="true">↗</span></a><p class="fine-print">После регистрации вернитесь сюда и введите ID. Подтверждение может прийти с задержкой.</p>
+          </div><aside class="access-aside"><span class="aside-index">BLUFIN+ / ДОСТУП</span><div class="aside-lines"><div><span class="round-step active">1</span><p><strong>Регистрация</strong><small>Откройте Binodex по нашей ссылке</small></p></div><div><span class="round-step">2</span><p><strong>Проверка ID</strong><small>Подтвердим регистрацию через postback</small></p></div><div><span class="round-step">3</span><p><strong>Активация</strong><small>Первое пополнение от $10</small></p></div></div><div class="aside-bottom">Ваш ID проверяется на сервере. Одного ввода номера недостаточно для открытия доступа.</div></aside></div>
+      </section>
+
+      <section id="deposit" class="deposit view hidden"><div class="step-caption">ШАГ 02 / 02 <span class="step-line"></span> АКТИВАЦИЯ ДОСТУПА</div><div class="deposit-card"><span class="deposit-glow">✦</span><span class="pill">ID подтверждён</span><h1>Почти готово.<br /><span>Активируйте доступ.</span></h1><p>Пополните баланс Binodex на сумму от <strong>$10</strong>. Как только партнёрская система подтвердит депозит, доступ к анализу откроется автоматически.</p><div class="deposit-actions"><a class="button primary" href="/go" data-registration-link target="_blank" rel="noopener noreferrer">Открыть Binodex <span aria-hidden="true">↗</span></a><button id="check-deposit" class="button secondary" type="button">Проверить статус</button></div><div id="deposit-message" class="status-note">Ожидаем подтверждение депозита. Иногда оно приходит не сразу.</div></div></section>
+
+      <section id="dashboard" class="dashboard view hidden">
+        <div class="workspace-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> РАБОЧАЯ ПАНЕЛЬ</div><h1>Новый анализ<span class="title-dot">.</span></h1><p>Только информация, которую можно увидеть на вашем скриншоте.</p></div><span class="workspace-status"><span class="live-dot"></span> ДОСТУП АКТИВЕН</span></div>
+        <div class="workspace-grid"><div class="upload-column"><form id="analysis-form"><label class="field-label" for="chart-file">01 / ГРАФИК</label><div id="dropzone" class="dropzone" role="button" tabindex="0" aria-label="Загрузить скриншот графика"><input id="chart-file" type="file" accept="image/jpeg,image/png,image/webp" class="visually-hidden" /><div id="empty-upload"><div class="upload-icon">↥</div><strong>Перетащите сюда график</strong><span>или нажмите, чтобы выбрать файл</span><small>JPG, PNG, WebP · до 5 МБ</small></div><div id="image-preview" class="image-preview hidden"><img id="preview-img" alt="Предпросмотр вашего графика" /><span id="preview-name"></span><button id="remove-file" type="button" aria-label="Удалить скриншот">×</button></div></div><div class="input-grid"><div><label class="field-label" for="asset">02 / АКТИВ</label><div class="select-wrap"><select id="asset" required></select><span>⌄</span></div></div><div><label class="field-label">03 / ЭКСПИРАЦИЯ</label><div id="expiry-options" class="expiry-options" role="group" aria-label="Время экспирации"><button type="button" data-expiry="1">1 мин</button><button type="button" data-expiry="3" class="selected">3 мин</button><button type="button" data-expiry="5">5 мин</button><button type="button" data-expiry="15">15 мин</button></div></div></div><button id="analyze-button" class="button primary analyze" type="submit">Проанализировать график <span aria-hidden="true">↗</span></button><p class="fine-print">OTC-активы недоступны. Скриншот не сохраняется после анализа.</p></form></div>
+          <aside class="workflow-aside"><div class="workflow-kicker">КАК ЭТО РАБОТАЕТ <span>BLUFIN+ CORE</span></div><h2>Разбор без<br />лишнего шума.</h2><div class="workflow-steps"><div><span class="workflow-num">01</span><div><strong>Читаем график</strong><p>Модель рассматривает только изображение, которое вы загрузили.</p></div></div><div><span class="workflow-num">02</span><div><strong>Сопоставляем параметры</strong><p>Проверяем, подходит ли ситуация для выбранной экспирации.</p></div></div><div><span class="workflow-num">03</span><div><strong>Показываем сценарий</strong><p>Вверх, вниз или «Пропустить», если уверенного сетапа нет.</p></div></div></div><div class="workflow-foot">Без доступа к котировкам в реальном времени. Перед сделкой сверяйте график самостоятельно.</div></aside></div>
+        <div id="analysis-error" class="form-message hidden" role="alert"></div>
+        <section id="result-section" class="result-section hidden" aria-live="polite"><div class="result-top"><div><div class="eyebrow"><span class="eyebrow-line"></span> ИТОГ АНАЛИЗА</div><h2 id="result-title">Разбор графика</h2></div><span id="result-stamp"></span></div><div class="result-grid"><div id="verdict-card" class="verdict-card"><span>СЦЕНАРИЙ</span><strong id="verdict-text"></strong><p id="verdict-reason"></p><div id="freshness" class="freshness"></div></div><div class="report-card"><div class="report-heading">Отчёт аналитика <span>↗</span></div><dl><div><dt>Тренд</dt><dd id="report-trend"></dd></div><div><dt>Таймфрейм</dt><dd id="report-timeframe"></dd></div><div><dt>Уровни</dt><dd id="report-levels"></dd></div><div><dt>Сетап</dt><dd id="report-setup"></dd></div><div><dt>Отмена сценария</dt><dd id="report-invalidation"></dd></div><div><dt>Ограничения</dt><dd id="report-limitations"></dd></div></dl></div></div></section>
+      </section>
+    </main>
+    <footer class="site-footer"><span>© BLUFIN+ 2026</span><p>Информационный анализ, не гарантия результата и не персональная инвестиционная рекомендация. Торговля сопряжена с риском потери средств.</p><span>ВРЕМЯ: МСК (UTC+3)</span></footer>
+  </div>
+</body>
+</html>
