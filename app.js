@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
-const state = { status: 'guest', accountId: null, file: null, expiry: 3, config: null, polling: null, resultTimer: null };
-const views = ['landing', 'access', 'deposit', 'dashboard'];
+const state = { status: 'guest', role: null, accountId: null, file: null, expiry: 3, config: null, polling: null, resultTimer: null, token: sessionStorage.getItem('blufin_session') };
+const views = ['landing', 'access', 'deposit', 'dashboard', 'owner-login'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 
@@ -20,23 +20,42 @@ function show(view) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (state.polling) { clearInterval(state.polling); state.polling = null; }
   if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
-  $('#account-chip').classList.toggle('hidden', !state.accountId);
-  $('#account-chip').textContent = state.accountId ? `ID ${state.accountId}` : '';
+  $('#owner-panel').classList.toggle('hidden', state.role !== 'admin');
+  $('#account-chip').classList.toggle('hidden', !state.accountId && state.role !== 'admin');
+  $('#account-chip').textContent = state.role === 'admin' ? 'ВЛАДЕЛЕЦ' : state.accountId ? `ID ${state.accountId}` : '';
+  $('#logout-button').classList.toggle('hidden', !state.token);
+  if (view === 'dashboard' && state.role === 'admin') refreshOwnerStats();
 }
 function routeFromStatus() { show(state.status === 'active' ? 'dashboard' : state.status === 'deposit' ? 'deposit' : 'landing'); }
 async function api(url, options = {}) {
   if (staticPreview) throw new Error('Доступ откроется после подключения Cloudflare Workers. Сейчас доступен только просмотр сайта.');
-  const response = await fetch(`${apiBase}${url}`, { ...options, credentials: 'include', headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } });
+  const response = await fetch(`${apiBase}${url}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
   const data = await response.json().catch(() => { throw new Error('Сервер проверки сейчас недоступен.'); });
   if (!response.ok) throw Object.assign(new Error(data.message || 'Не удалось выполнить запрос'), { code: data.code, status: response.status });
   return data;
 }
+async function refreshOwnerStats() {
+  try {
+    const stats = await api('/api/admin/stats');
+    for (const field of ['accounts', 'active', 'registrations', 'deposits', 'analyses']) {
+      $(`#owner-${field}`).textContent = new Intl.NumberFormat('ru-RU').format(stats[field]);
+    }
+    $('#owner-stats-message').textContent = `Обновлено: ${moscow(new Date(), true)} МСК`;
+  } catch { $('#owner-stats-message').textContent = 'Статистика сейчас недоступна. Попробуйте обновить.'; }
+}
 async function refreshSession(navigate = true) {
+  if (!state.token && apiBase) {
+    state.status = 'guest'; state.accountId = null; state.role = null;
+    if (navigate) routeFromStatus();
+    return { status: 'guest' };
+  }
   try {
     const account = await api('/api/me');
+    if (account.status === 'guest') { state.token = null; sessionStorage.removeItem('blufin_session'); }
     const changed = account.status !== state.status;
     state.status = account.status;
     state.accountId = account.accountId || null;
+    state.role = account.role || null;
     if (navigate && changed) routeFromStatus();
     if (!navigate && changed && account.status === 'active') routeFromStatus();
     if (!navigate && account.status === 'deposit') $('#deposit-message').textContent = 'Ожидаем подтверждение депозита. Иногда оно приходит не сразу.';
@@ -115,7 +134,7 @@ async function init() {
     } else {
       for (const link of document.querySelectorAll('[data-registration-link]')) link.href = `${apiBase}/go`;
       const depositLink = document.querySelector('#deposit a.button');
-      depositLink.href = state.config.referralUrl;
+      depositLink.href = `${apiBase}/go`;
     }
     const select = $('#asset');
     for (const asset of state.config.assets) {
@@ -129,12 +148,33 @@ async function init() {
     show('landing');
   }
   $('#begin-button').addEventListener('click', () => show('access'));
+  $('#owner-entry').addEventListener('click', () => show(state.role === 'admin' ? 'dashboard' : 'owner-login'));
+  $('#logout-button').addEventListener('click', () => {
+    state.token = null; state.status = 'guest'; state.role = null; state.accountId = null;
+    sessionStorage.removeItem('blufin_session');
+    routeFromStatus();
+  });
+  $('#owner-refresh').addEventListener('click', refreshOwnerStats);
+  $('#owner-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('#owner-form button'); button.disabled = true; button.textContent = 'Проверяем код…';
+    $('#owner-message').classList.add('hidden');
+    try {
+      const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code: $('#owner-code').value.trim() }) });
+      $('#owner-code').value = '';
+      state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
+      sessionStorage.setItem('blufin_session', result.token);
+      routeFromStatus();
+    } catch (error) { message($('#owner-message'), error.message); }
+    finally { button.disabled = false; button.innerHTML = 'Войти <span aria-hidden="true">→</span>'; }
+  });
   $('#id-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = $('#id-form button'); button.disabled = true; button.textContent = 'Проверяем ID…';
     $('#id-message').classList.add('hidden');
     try {
       const result = await api('/api/claim', { method: 'POST', body: JSON.stringify({ accountId: $('#account-id').value.trim() }) });
+      if (result.token) { state.token = result.token; sessionStorage.setItem('blufin_session', result.token); }
       state.status = result.status; state.accountId = result.accountId; routeFromStatus();
     } catch (error) { message($('#id-message'), error.message + (error.code === 'ID_NOT_FOUND' ? ' Ссылка для регистрации находится ниже.' : '')); }
     finally { button.disabled = false; button.innerHTML = 'Проверить ID <span aria-hidden="true">→</span>'; }

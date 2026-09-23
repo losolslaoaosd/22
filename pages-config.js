@@ -1,4 +1,3 @@
-// The GitHub Pages build copies this public configuration into dist/.
-// Keep the API origin empty until a Cloudflare Worker is deployed and verified.
-window.BLUFIN_STATIC_PREVIEW = true;
-window.BLUFIN_API_BASE = '';
+// Public Cloudflare Worker URL. Keep API keys and secrets out of this file.
+window.BLUFIN_STATIC_PREVIEW = false;
+window.BLUFIN_API_BASE = 'https://blufin-plus-api.bluefinplus.workers.dev';
