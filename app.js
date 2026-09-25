@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const state = { status: 'guest', role: null, accountId: null, file: null, expiry: 3, config: null, polling: null, resultTimer: null, token: sessionStorage.getItem('blufin_session') };
-const views = ['landing', 'access', 'deposit', 'dashboard', 'owner-login'];
+const views = ['landing', 'access', 'deposit', 'dashboard'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 
@@ -42,6 +42,13 @@ async function refreshOwnerStats() {
     }
     $('#owner-stats-message').textContent = `Обновлено: ${moscow(new Date(), true)} МСК`;
   } catch { $('#owner-stats-message').textContent = 'Статистика сейчас недоступна. Попробуйте обновить.'; }
+}
+async function enterOwnerCode(code) {
+  const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code }) });
+  state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
+  sessionStorage.setItem('blufin_session', result.token);
+  $('#account-id').value = '';
+  routeFromStatus();
 }
 async function refreshSession(navigate = true) {
   if (!state.token && apiBase) {
@@ -157,36 +164,40 @@ async function init() {
     show('landing');
   }
   $('#begin-button').addEventListener('click', () => show('access'));
-  $('#owner-entry').addEventListener('click', () => show(state.role === 'admin' ? 'dashboard' : 'owner-login'));
   $('#logout-button').addEventListener('click', () => {
     state.token = null; state.status = 'guest'; state.role = null; state.accountId = null;
     sessionStorage.removeItem('blufin_session');
     routeFromStatus();
   });
   $('#owner-refresh').addEventListener('click', refreshOwnerStats);
-  $('#owner-form').addEventListener('submit', async event => {
-    event.preventDefault();
-    const button = $('#owner-form button'); button.disabled = true; button.textContent = 'Проверяем код…';
-    $('#owner-message').classList.add('hidden');
-    try {
-      const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code: $('#owner-code').value.trim() }) });
-      $('#owner-code').value = '';
-      state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
-      sessionStorage.setItem('blufin_session', result.token);
-      routeFromStatus();
-    } catch (error) { message($('#owner-message'), error.message); }
-    finally { button.disabled = false; button.innerHTML = 'Войти <span aria-hidden="true">→</span>'; }
-  });
   $('#id-form').addEventListener('submit', async event => {
     event.preventDefault();
-    const button = $('#id-form button'); button.disabled = true; button.textContent = 'Проверяем ID…';
+    const button = $('#id-form button'); button.disabled = true; button.textContent = 'Проверяем…';
     $('#id-message').classList.add('hidden');
     try {
-      const result = await api('/api/claim', { method: 'POST', body: JSON.stringify({ accountId: $('#account-id').value.trim() }) });
+      const value = $('#account-id').value.trim();
+      if (!/^\d{3,64}$/.test(value)) {
+        await enterOwnerCode(value);
+        return;
+      }
+      let result;
+      try {
+        result = await api('/api/claim', { method: 'POST', body: JSON.stringify({ accountId: value }) });
+      } catch (claimError) {
+        if (claimError.status >= 400 && claimError.status < 500 && claimError.status !== 429) {
+          try {
+            await enterOwnerCode(value);
+            return;
+          } catch (ownerError) {
+            if (![400, 401, 403, 404].includes(ownerError.status)) throw ownerError;
+          }
+        }
+        throw claimError;
+      }
       if (result.token) { state.token = result.token; sessionStorage.setItem('blufin_session', result.token); }
       state.status = result.status; state.accountId = result.accountId; routeFromStatus();
     } catch (error) { message($('#id-message'), error.message + (error.code === 'ID_NOT_FOUND' ? ' Ссылка для регистрации находится ниже.' : '')); }
-    finally { button.disabled = false; button.innerHTML = 'Проверить ID <span aria-hidden="true">→</span>'; }
+    finally { button.disabled = false; button.innerHTML = 'Продолжить <span aria-hidden="true">→</span>'; }
   });
   $('#check-deposit').addEventListener('click', async () => {
     const button = $('#check-deposit'); button.disabled = true;
