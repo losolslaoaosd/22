@@ -139,6 +139,7 @@ function updateAccountPage() {
   $('#account-id-value').textContent = a.accountId || 'Переход на вход по ID';
   $('#account-verified').textContent = a.verifiedAt ? 'Аккаунт подтверждён' : 'Ожидает проверки';
   $('#account-registered').textContent = a.registeredAt ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(a.registeredAt)) : 'Нет данных';
+  $('#account-total-deposits').textContent = money(a.depositCents);
   $('#account-credits').textContent = a.creditsTotal === null ? 'Безлимит' : `${a.creditsRemaining} / ${a.creditsTotal}`;
   $('#account-signals').textContent = `${a.signalsUsed || 0} / ${a.signalLimit === null ? '∞' : a.signalLimit}`;
   const next = levels().find(item => item.id === a.nextLevel);
@@ -219,7 +220,7 @@ function show(view) {
   if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
   $('#owner-stats-link').classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
   $('#menu-terminal').classList.toggle('hidden', state.status !== 'active' || view === 'dashboard');
-  $('#menu-account').classList.toggle('hidden', !state.token || view === 'account');
+  $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
   $('#menu-login').classList.toggle('hidden', Boolean(state.token));
   $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
   $('#account-widget').classList.toggle('hidden', state.status !== 'active');
@@ -589,7 +590,7 @@ async function init() {
     try {
       const result = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({
         accountId: $('#login-id').value.trim(), password: $('#login-password').value,
-        remember: $('#login-remember').checked,
+        remember: false,
       }) });
       $('#login-password').value = ''; acceptAuth(result);
     } catch (error) { message($('#login-message'), error.message); }
