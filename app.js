@@ -83,6 +83,8 @@ function setFile(file) {
   $('#image-preview').classList.remove('hidden');
   $('#empty-upload').classList.add('hidden');
   $('#analysis-error').classList.add('hidden');
+  $('#result-section').classList.add('hidden');
+  $('#workflow-aside').classList.remove('hidden');
 }
 async function imageDataUrl(file) {
   const image = await createImageBitmap(file);
@@ -97,17 +99,26 @@ async function imageDataUrl(file) {
 }
 function renderResult(data) {
   const r = data.result;
-  const labels = { UP: 'ВВЕРХ', DOWN: 'ВНИЗ', NO_TRADE: 'ПРОПУСТИТЬ' };
+  const labels = { UP: 'ВВЕРХ', DOWN: 'ВНИЗ' };
+  if (!labels[r.verdict]) {
+    $('#result-section').classList.add('hidden');
+    $('#workflow-aside').classList.remove('hidden');
+    message($('#analysis-error'), 'По этому скриншоту направление определить не удалось. Загрузите более чёткий график и повторите анализ.');
+    return;
+  }
   const box = $('#verdict-card');
   box.classList.toggle('down', r.verdict === 'DOWN');
-  box.classList.toggle('no-trade', r.verdict === 'NO_TRADE');
-  $('#verdict-text').textContent = labels[r.verdict] || 'ПРОПУСТИТЬ';
+  box.classList.remove('signal-ready');
+  void box.offsetWidth;
+  box.classList.add('signal-ready');
+  $('#verdict-text').textContent = labels[r.verdict];
   $('#verdict-reason').textContent = r.reason;
   $('#result-title').textContent = `${data.asset} · ${data.expiry} мин`;
   $('#result-stamp').textContent = `АНАЛИЗ: ${moscow(new Date(data.created_at), true)} МСК`;
   for (const [field, value] of Object.entries({ trend: r.trend, timeframe: r.visible_timeframe, levels: r.key_levels, setup: r.setup, invalidation: r.invalidation, limitations: r.limitations })) {
     $(`#report-${field}`).textContent = value || 'Нет данных на скриншоте';
   }
+  $('#workflow-aside').classList.add('hidden');
   $('#result-section').classList.remove('hidden');
   if (state.resultTimer) clearInterval(state.resultTimer);
   const update = () => {
@@ -116,11 +127,9 @@ function renderResult(data) {
     if (!seconds && state.resultTimer) { clearInterval(state.resultTimer); state.resultTimer = null; }
   };
   update(); state.resultTimer = setInterval(update, 1000);
-  $('#result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (window.matchMedia('(max-width: 760px)').matches) $('#result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 async function init() {
-  $('#moscow-time').textContent = moscow(new Date(), true);
-  setInterval(() => { $('#moscow-time').textContent = moscow(new Date(), true); }, 1000);
   if (staticPreview) {
     $('#preview-banner').classList.remove('hidden');
     disableRegistration();
@@ -196,6 +205,7 @@ async function init() {
     e.stopPropagation(); state.file = null; $('#chart-file').value = '';
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
     $('#image-preview').classList.add('hidden'); $('#empty-upload').classList.remove('hidden');
+    $('#result-section').classList.add('hidden'); $('#workflow-aside').classList.remove('hidden');
   });
   $('#expiry-options').addEventListener('click', e => {
     const button = e.target.closest('[data-expiry]'); if (!button) return;
@@ -206,13 +216,18 @@ async function init() {
     e.preventDefault();
     if (!state.file) return message($('#analysis-error'), 'Сначала загрузите скриншот графика.');
     const button = $('#analyze-button'); button.disabled = true; button.textContent = 'Анализируем график…';
+    $('#dropzone').classList.add('is-analyzing');
+    const animationStart = performance.now();
     $('#analysis-error').classList.add('hidden');
+    $('#result-section').classList.add('hidden');
+    $('#workflow-aside').classList.remove('hidden');
     try {
       const image = await imageDataUrl(state.file);
       const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, asset: $('#asset').value, expiry: state.expiry }) });
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, 1600 - (performance.now() - animationStart))));
       renderResult(result);
     } catch (error) { message($('#analysis-error'), error.message); $('#analysis-error').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-    finally { button.disabled = false; button.innerHTML = 'Проанализировать график <span aria-hidden="true">↗</span>'; }
+    finally { $('#dropzone').classList.remove('is-analyzing'); button.disabled = false; button.innerHTML = 'Проанализировать график <span aria-hidden="true">↗</span>'; }
   });
 }
 init();
