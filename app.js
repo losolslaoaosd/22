@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: sessionStorage.getItem('blufin_session') };
-const views = ['landing', 'register', 'access', 'deposit', 'dashboard', 'owner-stats-view'];
+const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'account', 'owner-stats-view'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 const fallbackLevels = [
@@ -46,9 +46,10 @@ function updateActivation() {
   $('#deposit-progress-bar').value = Math.min(100, 100 * amount / next.minDeposit);
 }
 
-const siteRoot = new URL(window.location.pathname.replace(/(?:app|owner)\/(?:index\.html)?$|index\.html$/, ''), window.location.origin);
-const section = window.location.pathname.match(/\/(app|owner)\/(?:index\.html)?$/)?.[1] || null;
+const siteRoot = new URL(window.location.pathname.replace(/(?:app|owner|account)\/(?:index\.html)?$|index\.html$/, ''), window.location.origin);
+const section = window.location.pathname.match(/\/(app|owner|account)\/(?:index\.html)?$/)?.[1] || null;
 function sectionUrl(name) { return new URL(`${name}/`, siteRoot).href; }
+function isOwner() { return ['admin', 'owner'].includes(state.role); }
 function money(cents) { return `$${((cents || 0) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`; }
 function updateCycleTime() {
   const account = state.account;
@@ -67,49 +68,98 @@ function updateTerminalAccount() {
   const rank = state.config?.levels?.findIndex(level => level.id === a.tier) + 1;
   const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#6B7280';
   $('#account-widget').style.setProperty('--tier-color', tint);
-  $('#summary-tier').textContent = a.role === 'admin' ? 'ВЛАДЕЛЕЦ' : a.tier || 'BASE';
+  $('#summary-tier').textContent = isOwner() ? 'ПРОФИЛЬ' : a.tier || 'BASE';
   $('#summary-credits').textContent = a.creditsTotal === null ? 'AI Credits ∞' : `${a.creditsRemaining} AI Credits`;
   $('#summary-signals').textContent = `${a.signalsUsed || 0}/${a.signalLimit === null ? '∞' : a.signalLimit}`;
-  $('#summary-next').textContent = a.nextLevel && a.role !== 'admin' ? `До ${a.nextLevel}: ${money(Math.max(0, a.nextLevelDepositCents - a.depositCents))}` : '';
+  $('#summary-next').textContent = a.nextLevel && !isOwner() ? `До ${a.nextLevel}: ${money(Math.max(0, a.nextLevelDepositCents - a.depositCents))}` : '';
   $('#status-tier').textContent = a.tier || 'Нет уровня';
-  $('#status-rank').textContent = a.role === 'admin' ? 'Владелец' : `Уровень ${rank || 1}`;
-  $('#status-deposits').textContent = a.role === 'admin' ? 'Личный доступ' : money(a.depositCents);
+  $('#status-rank').textContent = isOwner() ? 'Владелец' : `Уровень ${rank || 1}`;
+  $('#status-deposits').textContent = isOwner() ? 'Личный доступ' : money(a.depositCents);
   $('#status-credits').textContent = a.creditsTotal === null ? 'Безлимит' : `${a.creditsRemaining} / ${a.creditsTotal}`;
   $('#status-signals').textContent = `${a.signalsUsed || 0} / ${a.signalLimit === null ? '∞' : a.signalLimit}`;
-  $('#status-next').classList.toggle('hidden', !a.nextLevel || a.role === 'admin');
-  $('#status-max').classList.toggle('hidden', Boolean(a.nextLevel) || a.role === 'admin');
+  $('#status-next').classList.toggle('hidden', !a.nextLevel || isOwner());
+  $('#status-max').classList.toggle('hidden', Boolean(a.nextLevel) || isOwner());
   $('#status-cycle-note').classList.toggle('hidden', Boolean(a.cycleResetAt));
   if (a.nextLevel) {
     $('#status-next-text').textContent = `До ${a.nextLevel}: ${money(Math.max(0, a.nextLevelDepositCents - a.depositCents))}`;
     const current = state.config?.levels?.find(level => level.id === a.tier)?.minDeposit || 0;
     $('#status-progress').value = Math.min(100, 100 * Math.max(0, (a.depositCents - current) / (a.nextLevelDepositCents - current)));
   }
-  if (!a.nextLevel && a.role !== 'admin') $('#status-reset').title = 'Максимальный уровень открыт';
-  $('#upgrade-link').textContent = a.tier === 'ULTRA' || a.role === 'admin' ? 'ULTRA • MAX LEVEL' : 'Повысить уровень';
-  $('#status-upgrade').classList.toggle('hidden', !a.nextLevel || a.role === 'admin');
+  if (!a.nextLevel && !isOwner()) $('#status-reset').title = 'Максимальный уровень открыт';
+  $('#status-upgrade').classList.toggle('hidden', !a.nextLevel || isOwner());
   updateCycleTime();
   updateModes();
 }
 function openUpgrade() {
   const a = state.account;
-  if (!a || a.role === 'admin' || a.tier === 'ULTRA') return;
-  const next = state.config?.levels?.find(level => level.id === a.nextLevel);
-  if (!next) return;
+  if (!a || isOwner() || a.tier === 'ULTRA') return;
+  const current = levels().find(level => level.id === a.tier);
+  const next = levels().find(level => level.id === a.nextLevel);
+  if (!next || !current) return;
   const box = $('#upgrade-content'); box.replaceChildren();
-  const line = (label, value) => { const row = document.createElement('p'); row.className = 'upgrade-row';
-    const caption = document.createElement('span'); caption.textContent = label;
-    const strong = document.createElement('strong'); strong.textContent = value; row.append(caption, strong); box.append(row); };
-  line('Ваш уровень', a.tier);
-  line('Общая сумма депозитов', money(a.depositCents));
-  line('Следующий уровень', next.name);
-  line('До повышения осталось', money(Math.max(0, next.minDeposit - a.depositCents)));
+  const difference = uiNode('div', '', 'upgrade-difference');
+  difference.append(uiNode('span', `До ${next.id} осталось`), uiNode('strong', money(Math.max(0, next.minDeposit - a.depositCents))));
+  box.append(difference);
+  const label = uiNode('p', `${money(a.depositCents)} / ${money(next.minDeposit)}`, 'upgrade-progress-label'); box.append(label);
   const progress = document.createElement('progress'); progress.max = next.minDeposit; progress.value = a.depositCents; box.append(progress);
-  const benefit = document.createElement('p'); benefit.className = 'upgrade-benefits';
-  benefit.textContent = `${next.signalLimit ?? '∞'} сигналов / 24 ч · ${next.creditsLimit} AI Credits · ${next.availableAiModes.join(' / ')}`;
-  box.append(benefit);
-  const link = document.createElement('a'); link.className = 'button primary'; link.textContent = `Повысить до ${next.name}`;
+  const comparison = uiNode('div', '', 'upgrade-comparison');
+  for (const [heading, tier] of [['СЕЙЧАС', current], ['ПОСЛЕ ПОВЫШЕНИЯ', next]]) {
+    const group = uiNode('div', '', 'upgrade-column');
+    group.append(uiNode('span', heading), uiNode('strong', tier.id),
+      uiNode('p', `${tier.signalLimit === null ? 'Безлимит сигналов' : `${tier.signalLimit} сигналов / 24 ч`}`),
+      uiNode('p', `${tier.creditsLimit} AI Credits`),
+      uiNode('small', tier.availableAiModes.map(mode => `${mode.toUpperCase()} AI`).join(' · ')));
+    comparison.append(group);
+  }
+  box.append(comparison);
+  const benefits = uiNode('div', '', 'upgrade-gain'); benefits.append(uiNode('span', 'ВЫ ПОЛУЧИТЕ'));
+  benefits.append(uiNode('strong', next.signalLimit === null ? 'Безлимит сигналов' : `+${next.signalLimit - current.signalLimit} сигналов / 24 ч`));
+  benefits.append(uiNode('strong', `+${next.creditsLimit - current.creditsLimit} AI Credits`));
+  for (const mode of next.availableAiModes.filter(mode => !current.availableAiModes.includes(mode))) benefits.append(uiNode('strong', `+ ${mode.toUpperCase()} AI`));
+  if (next.id === 'ULTRA') benefits.append(uiNode('small', 'Максимальный уровень аккаунта'));
+  box.append(benefits);
+  const link = document.createElement('a'); link.className = 'button primary'; link.textContent = `Повысить до ${next.id}`;
   link.href = `${apiBase}/go`; link.target = '_blank'; link.rel = 'noopener noreferrer'; box.append(link);
+  const all = uiNode('button', 'Все уровни', 'text-link'); all.type = 'button'; all.addEventListener('click', () => {
+    if (box.querySelector('.upgrade-all-levels')) return box.querySelector('.upgrade-all-levels').remove();
+    const list = uiNode('div', '', 'upgrade-all-levels');
+    levels().forEach(level => list.append(uiNode('p', `${level.id} · от ${money(level.minDeposit)} · ${level.signalLimit ?? '∞'} сигналов · ${level.creditsLimit} AI Credits`)));
+    box.append(list);
+  }); box.append(all);
   $('#upgrade-dialog').showModal();
+}
+function updateAccountPage() {
+  const a = state.account;
+  if (!a || a.status !== 'active') return;
+  const level = levels().find(item => item.id === a.tier);
+  const tint = level?.color || '#6B7280';
+  $('#account-level-name').textContent = a.tier || 'Нет уровня';
+  $('#account-level-name').style.color = tint;
+  $('#account-level-rank').textContent = isOwner() ? 'Владелец' : `Уровень ${levels().findIndex(item => item.id === a.tier) + 1}`;
+  $('#account-id-value').textContent = a.accountId || 'Переход на вход по ID';
+  $('#account-verified').textContent = a.verifiedAt ? 'Аккаунт подтверждён' : 'Ожидает проверки';
+  $('#account-registered').textContent = a.registeredAt ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(a.registeredAt)) : 'Нет данных';
+  $('#account-credits').textContent = a.creditsTotal === null ? 'Безлимит' : `${a.creditsRemaining} / ${a.creditsTotal}`;
+  $('#account-signals').textContent = `${a.signalsUsed || 0} / ${a.signalLimit === null ? '∞' : a.signalLimit}`;
+  const next = levels().find(item => item.id === a.nextLevel);
+  $('#account-level-progress').classList.toggle('hidden', !next || isOwner());
+  $('#account-max').classList.toggle('hidden', Boolean(next) || isOwner());
+  $('#account-upgrade').classList.toggle('hidden', !next || isOwner());
+  if (next) {
+    $('#account-deposits').textContent = money(a.depositCents);
+    $('#account-next').textContent = next.id;
+    $('#account-next').style.color = next.color;
+    $('#account-progress-from').textContent = money(a.depositCents);
+    $('#account-progress-to').textContent = `${money(next.minDeposit)} ${next.id}`;
+    $('#account-progress').max = next.minDeposit;
+    $('#account-progress').value = a.depositCents;
+    $('#account-next-label').textContent = next.id;
+    $('#account-remaining').textContent = money(Math.max(0, next.minDeposit - a.depositCents));
+  }
+  $('#owner-migration').classList.toggle('hidden', a.role !== 'admin');
+  $('#change-password-open').classList.toggle('hidden', a.role === 'admin');
+  $('#logout-all').classList.toggle('hidden', a.role === 'admin');
+  $('#security-message').textContent = a.mustChangePassword ? 'Временный пароль нужно заменить перед анализом.' : '';
 }
 function updateModes() {
   const allowed = state.account?.modes || [];
@@ -156,10 +206,10 @@ function moscow(date = new Date(), withSeconds = false) {
 }
 function show(view) {
   for (const name of views) $(`#${name}`).classList.toggle('hidden', name !== view);
-  $('#onboarding-progress').classList.toggle('hidden', !['register', 'access', 'deposit'].includes(view));
+  $('#onboarding-progress').classList.toggle('hidden', !['register', 'access', 'password-setup', 'deposit'].includes(view));
   const stages = ['register', 'access', 'deposit'];
   for (const element of $('#onboarding-progress').querySelectorAll('[data-step]')) {
-    element.classList.toggle('active', element.dataset.step === view);
+    element.classList.toggle('active', element.dataset.step === view || (view === 'password-setup' && element.dataset.step === 'access'));
     element.classList.toggle('completed', stages.indexOf(element.dataset.step) < stages.indexOf(view));
     if (element.dataset.step === view) element.setAttribute('aria-current', 'step');
     else element.removeAttribute('aria-current');
@@ -167,23 +217,36 @@ function show(view) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (state.polling) { clearInterval(state.polling); state.polling = null; }
   if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
-  $('#owner-stats-link').classList.toggle('hidden', state.role !== 'admin' || view !== 'dashboard');
-  $('#upgrade-link').classList.toggle('hidden', view !== 'dashboard' || state.role === 'admin' || state.account?.tier === 'ULTRA');
+  $('#owner-stats-link').classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
+  $('#menu-terminal').classList.toggle('hidden', state.status !== 'active' || view === 'dashboard');
+  $('#menu-account').classList.toggle('hidden', !state.token || view === 'account');
+  $('#menu-login').classList.toggle('hidden', Boolean(state.token));
+  $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
   $('#account-widget').classList.toggle('hidden', state.status !== 'active');
   $('#account-chip').classList.add('hidden');
   $('#logout-button').classList.toggle('hidden', !state.token);
-  if (view === 'owner-stats-view' && state.role === 'admin') { refreshOwnerStats(); refreshOwnerUsers(false); }
+  $('#site-menu').classList.add('hidden');
+  $('#site-menu-toggle').setAttribute('aria-expanded', 'false');
+  if (view === 'owner-stats-view' && isOwner()) { refreshOwnerStats(); refreshOwnerUsers(false); }
   if (view === 'dashboard') { updateTerminalAccount(); restoreLatest(); }
+  if (view === 'account') updateAccountPage();
+  if (view === 'password-setup') $('#setup-account-id').textContent = state.accountId || '';
   if (view === 'deposit') updateActivation();
 }
 function routeFromStatus() {
-  if (state.status === 'active') {
-    if (section === 'owner' && state.role !== 'admin') return window.location.replace(sectionUrl('app'));
-    if (!section) return window.location.replace(sectionUrl('app'));
-    return show(section === 'owner' ? 'owner-stats-view' : 'dashboard');
+  if (state.status !== 'guest' && state.role !== 'admin' && state.account?.passwordConfigured === false)
+    return show('password-setup');
+  if (state.account?.mustChangePassword) {
+    if (section && section !== 'account') return window.location.replace(sectionUrl('account'));
+    return show('account');
   }
-  if (section) return window.location.replace(siteRoot.href);
-  show(state.status === 'deposit' ? 'deposit' : 'landing');
+  if (state.status === 'active') {
+    if (section === 'owner' && !isOwner()) return window.location.replace(sectionUrl('app'));
+    if (!section) return window.location.replace(sectionUrl('app'));
+    return show(section === 'owner' ? 'owner-stats-view' : section === 'account' ? 'account' : 'dashboard');
+  }
+  if (state.status === 'deposit') return section ? window.location.replace(siteRoot.href) : show('deposit');
+  show(section ? 'login' : 'landing');
 }
 async function api(url, options = {}) {
   if (staticPreview) throw new Error('Доступ откроется после подключения Cloudflare Workers. Сейчас доступен только просмотр сайта.');
@@ -222,7 +285,7 @@ function tierBadge(tier) {
   return badge;
 }
 async function refreshOwnerUsers(more = false) {
-  if (state.role !== 'admin') return;
+  if (!isOwner()) return;
   const page = more ? state.ownerPage + 1 : 0;
   const search = $('#owner-search').value.trim();
   if (search && !/^\d{1,16}$/.test(search)) { $('#owner-users-message').textContent = 'Введите только цифры ID.'; return; }
@@ -279,6 +342,15 @@ function renderOwnerUser(data, appendSignals = false) {
     }
     const refresh = uiNode('button', 'Пересчитать по подтверждённым депозитам', 'button secondary');
     refresh.id = 'owner-user-refresh'; refresh.type = 'button'; box.append(refresh);
+    if (user.passwordConfigured) {
+      const reset = uiNode('form', '', 'owner-password-reset'); reset.id = 'owner-password-reset';
+      reset.append(uiNode('h3', 'Сменить пароль пользователя'));
+      const label = uiNode('label', 'Временный пароль BLUFIN+'); label.htmlFor = 'owner-temporary-password';
+      const input = document.createElement('input'); input.id = 'owner-temporary-password'; input.type = 'password'; input.minLength = 10; input.required = true; input.autocomplete = 'new-password';
+      const submit = uiNode('button', 'Установить временный пароль', 'button secondary'); submit.type = 'submit';
+      const note = uiNode('p', 'После входа пользователь должен сменить этот пароль.', 'fine-print'); note.id = 'owner-reset-message';
+      reset.append(label, input, submit, note); box.append(reset);
+    }
     box.append(uiNode('h3', 'Подтверждённые депозиты'));
     const deposits = uiNode('ul', '', 'owner-detail-list');
     for (const item of data.deposits) { const li = uiNode('li'); li.append(uiNode('span', dateLabel(item.confirmedAt)), uiNode('span', `${money(item.amountCents)} · Confirmed`)); deposits.append(li); }
@@ -303,7 +375,7 @@ function renderOwnerUser(data, appendSignals = false) {
   if (data.hasMoreSignals) { const more = uiNode('button', 'Показать больше', 'button secondary'); more.id = 'owner-more-signals'; more.dataset.page = String(data.signalPage + 1); box.append(more); }
 }
 async function openOwnerUser(accountId) {
-  if (state.role !== 'admin') return;
+  if (!isOwner()) return;
   $('#owner-user-content').textContent = 'Загружаем данные…';
   $('#owner-user-dialog').showModal();
   try { renderOwnerUser(await api(`/api/admin/users/${encodeURIComponent(accountId)}`)); }
@@ -317,6 +389,22 @@ async function enterOwnerCode(code) {
   $('#account-id').value = '';
   await refreshSession(false);
   routeFromStatus();
+}
+function acceptAuth(result) {
+  state.token = result.token;
+  sessionStorage.setItem('blufin_session', result.token);
+  state.status = result.status;
+  state.role = result.role || 'user';
+  state.accountId = result.accountId || null;
+  state.account = result;
+  state.latestResult = null;
+  routeFromStatus();
+}
+function clearAuth() {
+  state.token = null; state.status = 'guest'; state.role = null; state.accountId = null; state.account = null;
+  sessionStorage.removeItem('blufin_session');
+  state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
+  state.resultTimer = null; showTerminal('empty'); routeFromStatus();
 }
 async function refreshSession(navigate = true) {
   if (!state.token && apiBase) {
@@ -408,6 +496,10 @@ function renderResult(data, scroll = false) {
   const panel = $('#terminal-result');
   panel.classList.toggle('no-trade', !actionable);
   panel.classList.remove('expired');
+  const direction = $('#signal-hero');
+  direction.classList.toggle('direction-up', r.verdict === 'UP');
+  direction.classList.toggle('direction-down', r.verdict === 'DOWN');
+  direction.classList.toggle('direction-neutral', r.verdict === 'NO_TRADE');
   $('#signal-actions').classList.add('hidden');
   $('#signal-analysis').classList.remove('hidden');
   $('#signal-timer').classList.toggle('hidden', !actionable);
@@ -486,16 +578,80 @@ async function init() {
     show('landing');
   }
   $('#begin-button').addEventListener('click', () => show('register'));
+  for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`).addEventListener('click', () => show('login'));
+  $('#login-first').addEventListener('click', () => show('register'));
+  $('#forgot-password').addEventListener('click', () => $('#forgot-dialog').showModal());
+  $('#close-forgot').addEventListener('click', () => $('#forgot-dialog').close());
+  $('#login-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('#login-form button[type=submit]'); button.disabled = true;
+    $('#login-message').classList.add('hidden');
+    try {
+      const result = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({
+        accountId: $('#login-id').value.trim(), password: $('#login-password').value,
+        remember: $('#login-remember').checked,
+      }) });
+      $('#login-password').value = ''; acceptAuth(result);
+    } catch (error) { message($('#login-message'), error.message); }
+    finally { button.disabled = false; }
+  });
+  $('#setup-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const password = $('#setup-password').value;
+    if (password !== $('#setup-confirm').value) return message($('#setup-message'), 'Пароли не совпадают.');
+    const button = $('#setup-form button[type=submit]'); button.disabled = true;
+    try {
+      const result = await api('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password }) });
+      $('#setup-form').reset(); acceptAuth(result);
+    } catch (error) { message($('#setup-message'), error.message); }
+    finally { button.disabled = false; }
+  });
   $('#go-to-verification').addEventListener('click', () => show('access'));
   $('#back-to-registration').addEventListener('click', () => show('register'));
   $('#continue-activation').addEventListener('click', () => show('deposit'));
   $('#owner-stats-link').addEventListener('click', () => window.location.assign(sectionUrl('owner')));
+  $('#menu-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
+  for (const id of ['status-account', 'menu-account']) $(`#${id}`).addEventListener('click', () => window.location.assign(sectionUrl('account')));
+  $('#account-back').addEventListener('click', () => window.location.assign(sectionUrl('app')));
+  $('#account-upgrade').addEventListener('click', openUpgrade);
+  $('#change-password-open').addEventListener('click', () => $('#change-password-dialog').showModal());
+  $('#close-change-password').addEventListener('click', () => $('#change-password-dialog').close());
+  $('#change-password-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const newPassword = $('#new-password').value;
+    if (newPassword !== $('#new-password-confirm').value) return message($('#change-password-message'), 'Новые пароли не совпадают.');
+    const button = $('#change-password-form button[type=submit]'); button.disabled = true;
+    try {
+      const result = await api('/api/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword: $('#current-password').value, newPassword }) });
+      $('#change-password-form').reset(); $('#change-password-dialog').close();
+      acceptAuth(result); message($('#security-message'), 'Пароль успешно изменён.', false);
+    } catch (error) { message($('#change-password-message'), error.message); }
+    finally { button.disabled = false; }
+  });
+  $('#owner-migration-form').addEventListener('submit', async event => {
+    event.preventDefault(); const button = $('#owner-migration-form button[type=submit]'); button.disabled = true;
+    try {
+      const result = await api('/api/admin/migrate-owner', { method: 'POST', body: JSON.stringify({
+        accountId: $('#owner-migration-id').value.trim(), password: $('#owner-migration-password').value,
+      }) });
+      $('#owner-migration-form').reset(); acceptAuth(result);
+      message($('#security-message'), 'Вход владельца перенесён на ID и пароль.', false);
+    } catch (error) { message($('#owner-migration-message'), error.message); }
+    finally { button.disabled = false; }
+  });
+  $('#site-menu-toggle').addEventListener('click', () => {
+    const opening = $('#site-menu').classList.contains('hidden');
+    $('#site-menu').classList.toggle('hidden', !opening);
+    $('#site-menu-toggle').setAttribute('aria-expanded', String(opening));
+    if (opening) { $('#account-status').classList.add('hidden'); $('#account-summary').setAttribute('aria-expanded', 'false'); }
+  });
   $('#upgrade-link').addEventListener('click', openUpgrade);
   $('#account-summary').addEventListener('click', async () => {
     const popover = $('#account-status');
     const opening = popover.classList.contains('hidden');
     popover.classList.toggle('hidden', !opening);
     $('#account-summary').setAttribute('aria-expanded', String(opening));
+    if (opening) { $('#site-menu').classList.add('hidden'); $('#site-menu-toggle').setAttribute('aria-expanded', 'false'); }
     if (opening) await refreshSession(false);
   });
   document.addEventListener('click', event => {
@@ -503,18 +659,24 @@ async function init() {
       $('#account-status').classList.add('hidden');
       $('#account-summary').setAttribute('aria-expanded', 'false');
     }
+    if (!event.target.closest('.site-menu-wrap')) {
+      $('#site-menu').classList.add('hidden');
+      $('#site-menu-toggle').setAttribute('aria-expanded', 'false');
+    }
   });
   $('#status-upgrade').addEventListener('click', () => { $('#account-status').classList.add('hidden'); $('#account-summary').setAttribute('aria-expanded', 'false'); openUpgrade(); });
   $('#close-upgrade').addEventListener('click', () => $('#upgrade-dialog').close());
   $('#upgrade-dialog').addEventListener('click', event => { if (event.target.id === 'upgrade-dialog') event.target.close(); });
   setInterval(updateCycleTime, 30_000);
   $('#back-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
-  $('#logout-button').addEventListener('click', () => {
-    state.token = null; state.status = 'guest'; state.role = null; state.accountId = null;
-    sessionStorage.removeItem('blufin_session');
-    state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
-    state.resultTimer = null; showTerminal('empty');
-    routeFromStatus();
+  $('#logout-button').addEventListener('click', async () => {
+    try { await api('/api/auth/logout', { method: 'POST' }); } finally { clearAuth(); }
+  });
+  $('#logout-all').addEventListener('click', async () => {
+    const button = $('#logout-all'); button.disabled = true;
+    try { await api('/api/auth/logout-all', { method: 'POST' }); clearAuth(); }
+    catch (error) { message($('#security-message'), error.message); }
+    finally { button.disabled = false; }
   });
   $('#owner-refresh').addEventListener('click', refreshOwnerStats);
   $('#owner-refresh').addEventListener('click', () => refreshOwnerUsers(false));
@@ -543,6 +705,15 @@ async function init() {
       catch (error) { button.textContent = error.message; button.disabled = false; }
     }
   });
+  $('#owner-user-content').addEventListener('submit', async event => {
+    if (event.target.id !== 'owner-password-reset') return;
+    event.preventDefault(); const button = event.target.querySelector('button[type=submit]'); button.disabled = true;
+    try {
+      await api(`/api/admin/users/${state.ownerUserId}/reset-password`, { method: 'POST', body: JSON.stringify({ temporaryPassword: $('#owner-temporary-password').value }) });
+      message($('#owner-reset-message'), 'Пароль изменён. Передайте временный пароль пользователю лично. При следующем входе потребуется его сменить.', false);
+    } catch (error) { message($('#owner-reset-message'), error.message); }
+    finally { button.disabled = false; }
+  });
   $('#id-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = $('#id-form button'); button.disabled = true; button.textContent = 'Проверяем…';
@@ -553,25 +724,15 @@ async function init() {
         await enterOwnerCode(value);
         return;
       }
-      let result;
-      try {
-        result = await api('/api/claim', { method: 'POST', body: JSON.stringify({ accountId: value }) });
-      } catch (claimError) {
-        if (claimError.status >= 400 && claimError.status < 500 && claimError.status !== 429) {
-          try {
-            await enterOwnerCode(value);
-            return;
-          } catch (ownerError) {
-            if (![400, 401, 403, 404].includes(ownerError.status)) throw ownerError;
-          }
-        }
-        throw claimError;
+      const result = await api('/api/claim', { method: 'POST', body: JSON.stringify({ accountId: value }) });
+      acceptAuth(result);
+    } catch (error) {
+      message($('#id-message'), error.message + (error.code === 'ID_NOT_FOUND' ? ' Перейдите к регистрации на предыдущем шаге.' : ''));
+      if (error.code === 'ACCOUNT_EXISTS') {
+        const login = uiNode('button', 'Перейти ко входу', 'text-link'); login.type = 'button';
+        login.addEventListener('click', () => show('login'), { once: true }); $('#id-message').append(login);
       }
-      if (result.token) { state.token = result.token; sessionStorage.setItem('blufin_session', result.token); }
-      state.status = result.status; state.accountId = result.accountId; state.role = null; state.account = result; state.latestResult = null;
-      if (result.status === 'active') routeFromStatus();
-      else { updateActivation(); message($('#id-message'), 'Аккаунт найден · ID подтверждён', false); $('#continue-activation').classList.remove('hidden'); }
-    } catch (error) { message($('#id-message'), error.message + (error.code === 'ID_NOT_FOUND' ? ' Перейдите к регистрации на предыдущем шаге.' : '')); }
+    }
     finally { button.disabled = false; button.innerHTML = 'Проверить аккаунт <span aria-hidden="true">→</span>'; }
   });
   $('#check-deposit').addEventListener('click', async () => {

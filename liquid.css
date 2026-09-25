@@ -46,3 +46,9 @@ body{background:radial-gradient(ellipse 76% 53% at 82% 15%,#17438266,transparent
 html,body{overflow-x:hidden}
 .hero-chart .profit-three{right:19%}
 @media(max-width:760px){.hero-chart .profit-three{right:9%}}
+
+/* User supplied candlestick chart layered under the existing blue trails. */
+.hero-chart .chart-candles{display:none}
+.hero-chart .reference-candles{position:absolute;z-index:0;left:5%;top:6%;width:94%;height:83%;object-fit:cover;object-position:center;opacity:.84;mix-blend-mode:screen;filter:saturate(1.15) brightness(1.25);-webkit-mask-image:linear-gradient(90deg,transparent,#000 16%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 13%,#000 87%,transparent);mask-image:linear-gradient(90deg,transparent,#000 16%,#000 91%,transparent),linear-gradient(180deg,transparent,#000 13%,#000 87%,transparent);-webkit-mask-composite:source-in;mask-composite:intersect}
+.hero-chart .chart-drawing{position:relative;z-index:1}
+@media(max-width:760px){.hero-chart .reference-candles{left:0;top:8%;width:100%;height:78%;object-fit:cover;opacity:.9}}
