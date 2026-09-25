@@ -1,8 +1,81 @@
 const $ = selector => document.querySelector(selector);
-const state = { status: 'guest', role: null, accountId: null, file: null, expiry: 3, config: null, polling: null, resultTimer: null, token: sessionStorage.getItem('blufin_session') };
-const views = ['landing', 'access', 'deposit', 'dashboard'];
+const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', config: null, polling: null, resultTimer: null, latestResult: null, clockOffset: 0, token: sessionStorage.getItem('blufin_session') };
+const views = ['landing', 'access', 'deposit', 'dashboard', 'owner-stats-view'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
+
+const siteRoot = new URL(window.location.pathname.replace(/(?:app|owner)\/(?:index\.html)?$|index\.html$/, ''), window.location.origin);
+const section = window.location.pathname.match(/\/(app|owner)\/(?:index\.html)?$/)?.[1] || null;
+function sectionUrl(name) { return new URL(`${name}/`, siteRoot).href; }
+function money(cents) { return `$${((cents || 0) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`; }
+function updateCycleTime() {
+  const account = state.account;
+  if (!account || state.status !== 'active') return;
+  const reset = account.cycleResetAt;
+  if (!reset || reset <= Date.now() - state.clockOffset) {
+    $('#status-reset').textContent = 'Период ещё не начат';
+    return;
+  }
+  const minutes = Math.ceil((reset - (Date.now() - state.clockOffset)) / 60000);
+  $('#status-reset').textContent = `через ${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+}
+function updateTerminalAccount() {
+  const a = state.account;
+  if (!a || a.status !== 'active') return;
+  const rank = state.config?.levels?.findIndex(level => level.id === a.tier) + 1;
+  $('#status-tier').textContent = a.tier || 'Нет уровня';
+  $('#status-rank').textContent = a.role === 'admin' ? 'Владелец' : `Уровень ${rank || 1}`;
+  $('#status-deposits').textContent = a.role === 'admin' ? 'Личный доступ' : money(a.depositCents);
+  $('#status-credits').textContent = a.creditsTotal === null ? 'Безлимит' : `${a.creditsRemaining} / ${a.creditsTotal}`;
+  $('#status-signals').textContent = `${a.signalsUsed || 0} / ${a.signalLimit === null ? '∞' : a.signalLimit}`;
+  $('#status-next').classList.toggle('hidden', !a.nextLevel || a.role === 'admin');
+  $('#status-max').classList.toggle('hidden', Boolean(a.nextLevel) || a.role === 'admin');
+  $('#status-cycle-note').classList.toggle('hidden', Boolean(a.cycleResetAt));
+  if (a.nextLevel) {
+    $('#status-next-text').textContent = `До ${a.nextLevel}: ${money(Math.max(0, a.nextLevelDepositCents - a.depositCents))}`;
+    const current = state.config?.levels?.find(level => level.id === a.tier)?.minDeposit || 0;
+    $('#status-progress').value = Math.min(100, 100 * Math.max(0, (a.depositCents - current) / (a.nextLevelDepositCents - current)));
+  }
+  if (!a.nextLevel && a.role !== 'admin') $('#status-reset').title = 'Максимальный уровень открыт';
+  $('#upgrade-link').textContent = a.tier === 'ULTRA' || a.role === 'admin' ? 'ULTRA • MAX LEVEL' : 'Повысить уровень';
+  updateCycleTime();
+  updateModes();
+}
+function openUpgrade() {
+  const a = state.account;
+  if (!a || a.role === 'admin' || a.tier === 'ULTRA') return;
+  const next = state.config?.levels?.find(level => level.id === a.nextLevel);
+  if (!next) return;
+  const box = $('#upgrade-content'); box.replaceChildren();
+  const line = (label, value) => { const row = document.createElement('p'); row.className = 'upgrade-row';
+    const caption = document.createElement('span'); caption.textContent = label;
+    const strong = document.createElement('strong'); strong.textContent = value; row.append(caption, strong); box.append(row); };
+  line('Ваш уровень', a.tier);
+  line('Общая сумма депозитов', money(a.depositCents));
+  line('Следующий уровень', next.name);
+  line('До повышения осталось', money(Math.max(0, next.minDeposit - a.depositCents)));
+  const progress = document.createElement('progress'); progress.max = next.minDeposit; progress.value = a.depositCents; box.append(progress);
+  const benefit = document.createElement('p'); benefit.className = 'upgrade-benefits';
+  benefit.textContent = `${next.signalLimit ?? '∞'} сигналов / 24 ч · ${next.creditsLimit} AI Credits · ${next.availableAiModes.join(' / ')}`;
+  box.append(benefit);
+  const link = document.createElement('a'); link.className = 'button primary'; link.textContent = `Повысить до ${next.name}`;
+  link.href = `${apiBase}/go`; link.target = '_blank'; link.rel = 'noopener noreferrer'; box.append(link);
+  $('#upgrade-dialog').showModal();
+}
+function updateModes() {
+  const allowed = state.account?.modes || [];
+  if (!allowed.includes(state.mode)) state.mode = 'Fast';
+  for (const card of $('#mode-options').querySelectorAll('[data-mode]')) {
+    const unlocked = allowed.includes(card.dataset.mode);
+    const cost = state.config?.aiModes?.[card.dataset.mode]?.cost;
+    if (cost) card.querySelectorAll('span')[1].textContent = `${cost} AI Credits`;
+    card.classList.toggle('locked', !unlocked);
+    card.classList.toggle('selected', state.mode === card.dataset.mode);
+    card.setAttribute('aria-pressed', String(state.mode === card.dataset.mode));
+    card.setAttribute('aria-disabled', String(!unlocked));
+    card.querySelector('.mode-lock').classList.toggle('hidden', unlocked);
+  }
+}
 
 function disableRegistration() {
   for (const link of document.querySelectorAll('[data-registration-link]')) {
@@ -20,13 +93,23 @@ function show(view) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (state.polling) { clearInterval(state.polling); state.polling = null; }
   if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
-  $('#owner-panel').classList.toggle('hidden', state.role !== 'admin');
+  $('#owner-stats-link').classList.toggle('hidden', state.role !== 'admin' || view !== 'dashboard');
+  $('#upgrade-link').classList.toggle('hidden', view !== 'dashboard');
   $('#account-chip').classList.toggle('hidden', !state.accountId && state.role !== 'admin');
   $('#account-chip').textContent = state.role === 'admin' ? 'ВЛАДЕЛЕЦ' : state.accountId ? `ID ${state.accountId}` : '';
   $('#logout-button').classList.toggle('hidden', !state.token);
-  if (view === 'dashboard' && state.role === 'admin') refreshOwnerStats();
+  if (view === 'owner-stats-view' && state.role === 'admin') refreshOwnerStats();
+  if (view === 'dashboard') { updateTerminalAccount(); restoreLatest(); }
 }
-function routeFromStatus() { show(state.status === 'active' ? 'dashboard' : state.status === 'deposit' ? 'deposit' : 'landing'); }
+function routeFromStatus() {
+  if (state.status === 'active') {
+    if (section === 'owner' && state.role !== 'admin') return window.location.replace(sectionUrl('app'));
+    if (!section) return window.location.replace(sectionUrl('app'));
+    return show(section === 'owner' ? 'owner-stats-view' : 'dashboard');
+  }
+  if (section) return window.location.replace(siteRoot.href);
+  show(state.status === 'deposit' ? 'deposit' : 'landing');
+}
 async function api(url, options = {}) {
   if (staticPreview) throw new Error('Доступ откроется после подключения Cloudflare Workers. Сейчас доступен только просмотр сайта.');
   const response = await fetch(`${apiBase}${url}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
@@ -46,13 +129,14 @@ async function refreshOwnerStats() {
 async function enterOwnerCode(code) {
   const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code }) });
   state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
+  state.account = { status: 'active', role: 'admin', tier: 'ULTRA', modes: ['Fast', 'Deep', 'Maximum'] }; state.latestResult = null;
   sessionStorage.setItem('blufin_session', result.token);
   $('#account-id').value = '';
   routeFromStatus();
 }
 async function refreshSession(navigate = true) {
   if (!state.token && apiBase) {
-    state.status = 'guest'; state.accountId = null; state.role = null;
+    state.status = 'guest'; state.accountId = null; state.role = null; state.account = null;
     if (navigate) routeFromStatus();
     return { status: 'guest' };
   }
@@ -62,7 +146,9 @@ async function refreshSession(navigate = true) {
     const changed = account.status !== state.status;
     state.status = account.status;
     state.accountId = account.accountId || null;
-    state.role = account.role || null;
+    state.role = account.role || null; state.account = account;
+    if (account.serverTime) state.clockOffset = Date.now() - account.serverTime;
+    if (account.status === 'active' && section === 'app') updateTerminalAccount();
     if (navigate && changed) routeFromStatus();
     if (!navigate && changed && account.status === 'active') routeFromStatus();
     if (!navigate && account.status === 'deposit') $('#deposit-message').textContent = 'Ожидаем подтверждение депозита. Иногда оно приходит не сразу.';
@@ -90,51 +176,87 @@ function setFile(file) {
   $('#image-preview').classList.remove('hidden');
   $('#empty-upload').classList.add('hidden');
   $('#analysis-error').classList.add('hidden');
-  $('#result-section').classList.add('hidden');
-  $('#workflow-aside').classList.remove('hidden');
 }
 async function imageDataUrl(file) {
   const image = await createImageBitmap(file);
   try {
-    const scale = Math.min(1, 1600 / Math.max(image.width, image.height));
+    const scale = Math.min(1, 2200 / Math.max(image.width, image.height));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(image.width * scale));
     canvas.height = Math.max(1, Math.round(image.height * scale));
     canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.86);
+    return canvas.toDataURL('image/jpeg', 0.9);
   } finally { image.close(); }
 }
-function renderResult(data) {
+function showTerminal(section) {
+  for (const [name, id] of Object.entries({ empty: 'terminal-empty', processing: 'terminal-processing', result: 'terminal-result' }))
+    $(`#${id}`).classList.toggle('hidden', name !== section);
+}
+function beginProcessing(mode) {
+  const steps = ['График получен', 'Определение пары, цены и таймфрейма', 'Анализ тренда', 'Формирование сигнала'];
+  if (mode !== 'Fast') steps.splice(3, 0, 'Анализ структуры', 'Анализ волатильности');
+  if (mode === 'Maximum') steps.splice(5, 0, 'Historical Pattern Search', 'AI Consensus');
+  $('#processing-mode').textContent = `${mode.toUpperCase()} AI`;
+  $('#processing-steps').replaceChildren();
+  steps.forEach((label, index) => {
+    const item = document.createElement('li');
+    item.textContent = label;
+    if (index === 0) item.classList.add('current');
+    $('#processing-steps').append(item);
+  });
+  showTerminal('processing');
+}
+function imagePrepared() {
+  const items = $('#processing-steps').children;
+  items[0]?.classList.replace('current', 'done');
+  items[1]?.classList.add('current');
+}
+function renderResult(data, scroll = false) {
+  if (data.serverTime) state.clockOffset = Date.now() - data.serverTime;
+  state.latestResult = { ...data, serverTime: undefined };
   const r = data.result;
-  const labels = { UP: 'ВВЕРХ', DOWN: 'ВНИЗ' };
-  if (!labels[r.verdict]) {
-    $('#result-section').classList.add('hidden');
-    $('#workflow-aside').classList.remove('hidden');
-    message($('#analysis-error'), 'По этому скриншоту направление определить не удалось. Загрузите более чёткий график и повторите анализ.');
-    return;
-  }
-  const box = $('#verdict-card');
-  box.classList.toggle('down', r.verdict === 'DOWN');
-  box.classList.remove('signal-ready');
-  void box.offsetWidth;
-  box.classList.add('signal-ready');
-  $('#verdict-text').textContent = labels[r.verdict];
-  $('#verdict-reason').textContent = r.reason;
-  $('#result-title').textContent = `${data.asset} · ${data.expiry} мин`;
-  $('#result-stamp').textContent = `АНАЛИЗ: ${moscow(new Date(data.created_at), true)} МСК`;
-  for (const [field, value] of Object.entries({ trend: r.trend, timeframe: r.visible_timeframe, levels: r.key_levels, setup: r.setup, invalidation: r.invalidation, limitations: r.limitations })) {
-    $(`#report-${field}`).textContent = value || 'Нет данных на скриншоте';
-  }
-  $('#workflow-aside').classList.add('hidden');
-  $('#result-section').classList.remove('hidden');
+  const actionable = ['UP', 'DOWN'].includes(r.verdict) && Boolean(data.signalExpiresAt);
+  const panel = $('#terminal-result');
+  panel.classList.toggle('no-trade', !actionable);
+  panel.classList.remove('expired');
+  $('#signal-timer').classList.toggle('hidden', !actionable);
+  $('#signal-status').textContent = actionable ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ НЕ СФОРМИРОВАН';
+  $('#signal-stamp').textContent = `${moscow(new Date(data.created_at), true)} МСК`;
+  for (const [id, value] of Object.entries({
+    pair: r.pair || data.asset, timeframe: r.timeframe || 'Не определён',
+    price: r.current_price || 'Не определена',
+    direction: { UP: 'ВВЕРХ', DOWN: 'ВНИЗ', NO_TRADE: 'ПРОПУСТИТЬ' }[r.verdict],
+    duration: actionable ? `${data.signalDuration / 60} мин` : 'Нет сигнала',
+    mode: (data.mode || 'Fast').toUpperCase(),
+  })) $(`#signal-${id}`).textContent = value;
+  for (const field of ['trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus', 'key_levels', 'invalidation', 'limitations', 'final_conclusion'])
+    $(`#report-${field}`).textContent = r[field] || (field === 'final_conclusion' ? r.reason : 'Не определено');
+  showTerminal('result');
   if (state.resultTimer) clearInterval(state.resultTimer);
-  const update = () => {
-    const seconds = Math.max(0, Math.ceil((data.expires_at - Date.now()) / 1000));
-    $('#freshness').textContent = seconds ? `Скриншот актуален для этого разбора ещё ${seconds} сек · до ${moscow(new Date(data.expires_at), true)} МСК` : 'Время разбора истекло. Перед новой сделкой обновите график и повторите анализ.';
-    if (!seconds && state.resultTimer) { clearInterval(state.resultTimer); state.resultTimer = null; }
-  };
-  update(); state.resultTimer = setInterval(update, 1000);
-  if (window.matchMedia('(max-width: 760px)').matches) $('#result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  state.resultTimer = null;
+  if (actionable) {
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((data.signalExpiresAt - (Date.now() - state.clockOffset)) / 1000));
+      const total = data.signalDuration || 1;
+      $('#timer-text').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      $('#signal-timer').style.setProperty('--progress', `${Math.min(100, seconds / total * 100)}%`);
+      $('#timer-label').textContent = seconds ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ ЗАВЕРШЁН';
+      $('#signal-status').textContent = seconds ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ ЗАВЕРШЁН';
+      panel.classList.toggle('expired', !seconds);
+      if (!seconds && state.resultTimer) { clearInterval(state.resultTimer); state.resultTimer = null; }
+    };
+    update();
+    if (data.signalExpiresAt > Date.now() - state.clockOffset) state.resultTimer = setInterval(update, 1000);
+  }
+  if (scroll) $('#signal-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function restoreLatest() {
+  if (state.latestResult) return renderResult(state.latestResult);
+  try {
+    const history = await api('/api/history');
+    if (!$('#dashboard').classList.contains('hidden') && history.analyses?.[0] && $('#terminal-processing').classList.contains('hidden'))
+      renderResult({ ...history.analyses[0], serverTime: history.serverTime });
+  } catch { /* A missing history must not block a new analysis. */ }
 }
 async function init() {
   if (staticPreview) {
@@ -152,10 +274,6 @@ async function init() {
       const depositLink = document.querySelector('#deposit a.button');
       depositLink.href = `${apiBase}/go`;
     }
-    const select = $('#asset');
-    for (const asset of state.config.assets) {
-      const option = document.createElement('option'); option.value = asset; option.textContent = asset; select.append(option);
-    }
     await refreshSession(false);
     routeFromStatus();
   } catch {
@@ -164,9 +282,17 @@ async function init() {
     show('landing');
   }
   $('#begin-button').addEventListener('click', () => show('access'));
+  $('#owner-stats-link').addEventListener('click', () => window.location.assign(sectionUrl('owner')));
+  $('#upgrade-link').addEventListener('click', openUpgrade);
+  $('#close-upgrade').addEventListener('click', () => $('#upgrade-dialog').close());
+  $('#upgrade-dialog').addEventListener('click', event => { if (event.target.id === 'upgrade-dialog') event.target.close(); });
+  setInterval(updateCycleTime, 30_000);
+  $('#back-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
   $('#logout-button').addEventListener('click', () => {
     state.token = null; state.status = 'guest'; state.role = null; state.accountId = null;
     sessionStorage.removeItem('blufin_session');
+    state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
+    state.resultTimer = null; showTerminal('empty');
     routeFromStatus();
   });
   $('#owner-refresh').addEventListener('click', refreshOwnerStats);
@@ -195,7 +321,7 @@ async function init() {
         throw claimError;
       }
       if (result.token) { state.token = result.token; sessionStorage.setItem('blufin_session', result.token); }
-      state.status = result.status; state.accountId = result.accountId; routeFromStatus();
+      state.status = result.status; state.accountId = result.accountId; state.role = null; state.account = result; state.latestResult = null; routeFromStatus();
     } catch (error) { message($('#id-message'), error.message + (error.code === 'ID_NOT_FOUND' ? ' Ссылка для регистрации находится ниже.' : '')); }
     finally { button.disabled = false; button.innerHTML = 'Продолжить <span aria-hidden="true">→</span>'; }
   });
@@ -206,39 +332,51 @@ async function init() {
     if (account?.status === 'deposit') $('#deposit-message').textContent = 'Депозит пока не подтверждён. Попробуйте через несколько минут.';
     button.disabled = false;
   });
+  $('#screenshot-help').addEventListener('click', () => $('#screenshot-guide').showModal());
+  $('#close-guide').addEventListener('click', () => $('#screenshot-guide').close());
+  $('#screenshot-guide').addEventListener('click', event => { if (event.target.id === 'screenshot-guide') event.target.close(); });
   $('#chart-file').addEventListener('change', e => setFile(e.target.files[0]));
-  $('#dropzone').addEventListener('click', e => { if (e.target.id !== 'remove-file') $('#chart-file').click(); });
-  $('#dropzone').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#chart-file').click(); } });
+  $('#select-image').addEventListener('click', () => $('#chart-file').click());
+  $('#replace-file').addEventListener('click', () => $('#chart-file').click());
+  $('#dropzone').addEventListener('click', e => {
+    if (e.target === $('#dropzone') || e.target.id === 'preview-img') $('#chart-file').click();
+  });
   $('#dropzone').addEventListener('dragover', e => { e.preventDefault(); $('#dropzone').classList.add('dragging'); });
   $('#dropzone').addEventListener('dragleave', () => $('#dropzone').classList.remove('dragging'));
   $('#dropzone').addEventListener('drop', e => { e.preventDefault(); $('#dropzone').classList.remove('dragging'); setFile(e.dataTransfer.files[0]); });
   $('#remove-file').addEventListener('click', e => {
     e.stopPropagation(); state.file = null; $('#chart-file').value = '';
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+    state.previewUrl = null;
     $('#image-preview').classList.add('hidden'); $('#empty-upload').classList.remove('hidden');
-    $('#result-section').classList.add('hidden'); $('#workflow-aside').classList.remove('hidden');
   });
-  $('#expiry-options').addEventListener('click', e => {
-    const button = e.target.closest('[data-expiry]'); if (!button) return;
-    state.expiry = Number(button.dataset.expiry);
-    for (const item of $('#expiry-options').children) item.classList.toggle('selected', item === button);
+  $('#mode-options').addEventListener('click', e => {
+    const card = e.target.closest('[data-mode]'); if (!card) return;
+    if (card.getAttribute('aria-disabled') === 'true') {
+      return message($('#analysis-error'), card.querySelector('.mode-lock').textContent);
+    }
+    state.mode = card.dataset.mode; updateModes(); $('#analysis-error').classList.add('hidden');
   });
   $('#analysis-form').addEventListener('submit', async e => {
     e.preventDefault();
     if (!state.file) return message($('#analysis-error'), 'Сначала загрузите скриншот графика.');
+    if (!state.account?.modes?.includes(state.mode) && state.role !== 'admin' && !state.account?.special)
+      return message($('#analysis-error'), 'Этот режим недоступен на вашем уровне.');
     const button = $('#analyze-button'); button.disabled = true; button.textContent = 'Анализируем график…';
-    $('#dropzone').classList.add('is-analyzing');
-    const animationStart = performance.now();
     $('#analysis-error').classList.add('hidden');
-    $('#result-section').classList.add('hidden');
-    $('#workflow-aside').classList.remove('hidden');
+    beginProcessing(state.mode);
     try {
       const image = await imageDataUrl(state.file);
-      const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, asset: $('#asset').value, expiry: state.expiry }) });
-      await new Promise(resolve => setTimeout(resolve, Math.max(0, 1600 - (performance.now() - animationStart))));
-      renderResult(result);
-    } catch (error) { message($('#analysis-error'), error.message); $('#analysis-error').scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-    finally { $('#dropzone').classList.remove('is-analyzing'); button.disabled = false; button.innerHTML = 'Проанализировать график <span aria-hidden="true">↗</span>'; }
+      if (image.length > 4_700_000) throw new Error('Изображение слишком большое. Загрузите более компактный скриншот.');
+      imagePrepared();
+      const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, mode: state.mode }) });
+      renderResult(result, true);
+      if (result.account) { state.account = result.account; updateTerminalAccount(); }
+    } catch (error) {
+      showTerminal(state.latestResult ? 'result' : 'empty');
+      message($('#analysis-error'), error.message);
+      $('#analysis-error').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } finally { button.disabled = false; button.innerHTML = 'НАЧАТЬ АНАЛИЗ <span aria-hidden="true">↗</span>'; }
   });
 }
 init();
