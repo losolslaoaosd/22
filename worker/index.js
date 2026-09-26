@@ -164,7 +164,7 @@ async function ownerStats(env) {
     env.DB.prepare("SELECT COUNT(*) AS total, COUNT(activated_at) AS active FROM accounts WHERE account_id != ? AND role = 'user'").bind(OWNER_ACCOUNT).first(),
     env.DB.prepare('SELECT COUNT(*) AS total FROM registration_events WHERE received_at >= ?').bind(0).first(),
     env.DB.prepare('SELECT COUNT(*) AS total FROM deposit_events WHERE received_at >= ?').bind(0).first(),
-    env.DB.prepare("SELECT COUNT(*) AS total FROM analyses WHERE status = 'done' AND account_id != ?").bind(OWNER_ACCOUNT).first(),
+    env.DB.prepare("SELECT COUNT(*) AS total FROM analyses WHERE status = 'done' AND verdict IN ('UP', 'DOWN') AND account_id != ?").bind(OWNER_ACCOUNT).first(),
   ]);
   return { accounts: accounts.total, active: accounts.active, registrations: registrations.total, deposits: deposits.total, analyses: analyses.total };
 }
@@ -189,7 +189,7 @@ async function ownerUsers(env, url) {
   if (LEVELS.some(level => level.id === filter)) { where += ' AND a.tier = ?'; params.push(filter); }
   if (filter === 'active') where += " AND (a.activated_at IS NOT NULL AND a.tier IS NOT NULL OR a.account_id = '99105')";
   if (filter === 'no-access') where += " AND (a.activated_at IS NULL OR a.tier IS NULL) AND a.account_id != '99105'";
-  const data = await env.DB.prepare(`SELECT a.*, (SELECT MAX(created_at) FROM analyses WHERE account_id = a.account_id AND status = 'done') AS last_analysis_at,
+  const data = await env.DB.prepare(`SELECT a.*, (SELECT MAX(created_at) FROM analyses WHERE account_id = a.account_id AND status = 'done' AND verdict IN ('UP', 'DOWN')) AS last_analysis_at,
     (SELECT MAX(created_at) FROM sessions WHERE account_id = a.account_id) AS last_session_at
     FROM accounts a WHERE ${where} ORDER BY COALESCE(last_analysis_at, a.verified_at) DESC, a.account_id DESC LIMIT 26 OFFSET ?`)
     .bind(...params, page * 25).all();
@@ -197,7 +197,7 @@ async function ownerUsers(env, url) {
   const usage = rows.length ? await env.DB.prepare(`SELECT x.account_id, COALESCE(x.mode, 'Fast') AS mode, COUNT(*) AS lifetime,
     SUM(CASE WHEN a.limit_cycle_reset_at > ? AND x.created_at >= a.limit_cycle_started_at THEN 1 ELSE 0 END) AS cycle
     FROM analyses x JOIN accounts a ON a.account_id = x.account_id
-    WHERE x.account_id IN (${rows.map(() => '?').join(',')}) AND x.status = 'done'
+    WHERE x.account_id IN (${rows.map(() => '?').join(',')}) AND x.status = 'done' AND x.verdict IN ('UP', 'DOWN')
     GROUP BY x.account_id, COALESCE(x.mode, 'Fast')`).bind(Date.now(), ...rows.map(row => row.account_id)).all() : { results: [] };
   const users = rows.map(row => ({ ...ownerUserStatus(row), aiUsage: Object.fromEntries(
     usage.results.filter(item => item.account_id === row.account_id).map(item => [item.mode, { cycle: item.cycle, lifetime: item.lifetime }])
@@ -208,7 +208,7 @@ async function ownerUserDetails(env, accountId, url) {
   if (!id(accountId)) throw httpError(400, 'INVALID_ID', 'Некорректный ID');
   const page = Number(url.searchParams.get('page') || 0);
   if (!Number.isInteger(page) || page < 0 || page > 10000) throw httpError(400, 'INVALID_PAGE', 'Некорректная страница');
-  const row = await env.DB.prepare(`SELECT a.*, (SELECT MAX(created_at) FROM analyses WHERE account_id = a.account_id AND status = 'done') AS last_analysis_at,
+  const row = await env.DB.prepare(`SELECT a.*, (SELECT MAX(created_at) FROM analyses WHERE account_id = a.account_id AND status = 'done' AND verdict IN ('UP', 'DOWN')) AS last_analysis_at,
     (SELECT MAX(created_at) FROM sessions WHERE account_id = a.account_id) AS last_session_at
     FROM accounts a WHERE a.account_id = ?`).bind(accountId).first();
   if (!row) throw httpError(404, 'USER_NOT_FOUND', 'Пользователь не найден');
@@ -216,10 +216,10 @@ async function ownerUserDetails(env, accountId, url) {
     env.DB.prepare('SELECT event_id, amount_cents, received_at FROM deposit_events WHERE account_id = ? ORDER BY received_at DESC LIMIT 50').bind(accountId).all(),
     env.DB.prepare(`SELECT COALESCE(mode, 'Fast') AS mode, COUNT(*) AS lifetime,
       SUM(CASE WHEN created_at >= ? AND ? > ? THEN 1 ELSE 0 END) AS cycle
-      FROM analyses WHERE account_id = ? AND status = 'done' GROUP BY COALESCE(mode, 'Fast')`)
+      FROM analyses WHERE account_id = ? AND status = 'done' AND verdict IN ('UP', 'DOWN') GROUP BY COALESCE(mode, 'Fast')`)
       .bind(row.limit_cycle_started_at || 0, row.limit_cycle_reset_at || 0, Date.now(), accountId).all(),
     env.DB.prepare(`SELECT id, asset, mode, verdict, created_at, signal_expires_at FROM analyses
-      WHERE account_id = ? AND status = 'done' ORDER BY created_at DESC LIMIT 11 OFFSET ?`).bind(accountId, page * 10).all(),
+      WHERE account_id = ? AND status = 'done' AND verdict IN ('UP', 'DOWN') ORDER BY created_at DESC LIMIT 11 OFFSET ?`).bind(accountId, page * 10).all(),
   ]);
   return {
     user: ownerUserStatus(row),
@@ -386,8 +386,7 @@ const schema = {
     chart_visible: { type: 'boolean' },
     recent_candles_visible: { type: 'boolean' },
     sufficient_history: { type: 'boolean' },
-    verdict: { type: 'string', enum: ['UP', 'DOWN', 'NO_TRADE'] },
-    signal_duration_minutes: { type: 'integer', enum: EXPIRIES },
+    verdict: { type: 'string', enum: ['UP', 'DOWN'] },
     trend: { type: 'string' }, structure: { type: 'string' },
     momentum: { type: 'string' }, volatility: { type: 'string' },
     historical_match: { type: 'string' }, ai_consensus: { type: 'string' },
@@ -395,47 +394,72 @@ const schema = {
     reason: { type: 'string' }, invalidation: { type: 'string' },
     limitations: { type: 'string' }, final_conclusion: { type: 'string' },
   },
-  required: ['pair', 'current_price', 'timeframe', 'chart_visible', 'recent_candles_visible', 'sufficient_history', 'verdict', 'signal_duration_minutes',
+  required: ['pair', 'current_price', 'timeframe', 'chart_visible', 'recent_candles_visible', 'sufficient_history', 'verdict',
     'trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus',
     'key_levels', 'setup', 'reason', 'invalidation', 'limitations', 'final_conclusion'],
 };
-async function analyzeImage(env, image, mode) {
+const DESCRIPTION_FIELDS = ['trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus',
+  'key_levels', 'setup', 'reason', 'invalidation', 'limitations', 'final_conclusion'];
+function responseText(data) {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text;
+  return (data?.output || []).filter(item => item.type === 'message')
+    .flatMap(item => item.content || []).filter(item => item.type === 'output_text')
+    .map(item => item.text || '').join('');
+}
+async function analyzeImage(env, image, mode, expiry) {
   if (!env.OPENAI_API_KEY) throw httpError(503, 'AI_NOT_CONFIGURED', 'Анализ ещё не подключён');
   const model = env.OPENAI_MODEL || 'gpt-5-mini';
-  const tokenLimits = { Fast: [3000, 5500], Deep: [4500, 7500], Maximum: [6500, 10000] }[mode];
-  for (const maxOutputTokens of tokenLimits) {
-    const response = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST', signal: AbortSignal.timeout(60_000),
-      headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model, store: false, max_output_tokens: maxOutputTokens,
-        ...(model.startsWith('gpt-5') ? { reasoning: { effort: 'low' } } : {}),
-        text: { format: { type: 'json_schema', name: 'chart_analysis', strict: true, schema } },
-        instructions: `Ты аналитик графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Сначала прочитай с самого изображения торговую пару (pair, формат EUR/USD), текущую цену (current_price) и таймфрейм (timeframe, например M1). Если любой параметр не читается, верни для него null, никогда не угадывай. Отдельно выставь chart_visible, recent_candles_visible и sufficient_history в true только когда на скриншоте реально видны график, последние свечи и достаточно свечей для анализа. Пара должна быть из списка: ${ASSETS.join(', ')}. OTC, другие пары и неполные скриншоты не подходят. Анализируй только видимые свечи, не выдумывай живые котировки, внешнюю историю, другие таймфреймы, индикаторы или уровни. historical_match описывает только похожие паттерны на данном скриншоте, ai_consensus означает согласованность видимых признаков, а не мнение нескольких моделей. Если ясного сценария нет, верни NO_TRADE. Для UP/DOWN выбери обоснованную длительность в минутах только из 1, 3, 5, 15; не обещай результата. В limitations укажи недоступные данные.`,
-        input: [{ role: 'user', content: [
-          { type: 'input_text', text: 'Определи параметры графика непосредственно по скриншоту и проанализируй видимые данные.' },
-          { type: 'input_image', image_url: image, detail: 'high' },
-        ] }],
-      }),
-    });
+  const tokenLimits = { Fast: [6000, 10000], Deep: [9000, 14000], Maximum: [12000, 18000] }[mode];
+  for (const [attempt, maxOutputTokens] of tokenLimits.entries()) {
+    let response;
+    try {
+      response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST', signal: AbortSignal.timeout(90_000),
+        headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model, store: false, max_output_tokens: maxOutputTokens,
+          ...(model.startsWith('gpt-5') ? { reasoning: { effort: 'low' } } : {}),
+          text: { format: { type: 'json_schema', name: 'chart_analysis', strict: true, schema } },
+          instructions: `Ты аналитик графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Сначала прочитай с изображения торговую пару (pair, например EUR/USD), текущую цену (current_price) и таймфрейм (timeframe, например M1). Если любой параметр не читается, верни для него null, никогда не угадывай. Выставь chart_visible, recent_candles_visible и sufficient_history в true только если реально видны график, последние свечи и достаточная история. Пара должна быть из списка: ${ASSETS.join(', ')}. OTC и другие пары не подходят. Если скриншот пригоден для анализа, выбери только UP или DOWN по видимым признакам. Не выдумывай живые котировки, внешнюю историю, другие таймфреймы и индикаторы. historical_match описывает только паттерны на скриншоте, ai_consensus означает согласованность видимых признаков. Выбранная пользователем экспирация: ${expiry} мин. Учитывай её при анализе, не выбирай другую длительность. Пиши кратко, по 1-2 предложения на поле, и не обещай результата. Если данных для отдельного текстового поля нет, так и скажи в этом поле.`,
+          input: [{ role: 'user', content: [
+            { type: 'input_text', text: `Проанализируй видимый график для экспирации ${expiry} мин. Определи параметры по скриншоту.` },
+            { type: 'input_image', image_url: image, detail: 'high' },
+          ] }],
+        }),
+      });
+    } catch (cause) {
+      console.warn('AI transport failed', { attempt, reason: cause?.name || 'network' });
+      if (attempt === tokenLimits.length - 1) throw httpError(502, 'AI_UNAVAILABLE', 'Сервис анализа не ответил. Попробуйте повторить.');
+      continue;
+    }
     const data = await response.json().catch(() => null);
-    if (!response.ok) throw httpError(502, 'AI_UNAVAILABLE', 'Сервис анализа сейчас недоступен');
-    if (data?.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens') continue;
-    if (data?.status !== 'completed') throw httpError(502, 'AI_UNAVAILABLE', 'Анализ не завершился. Попробуйте повторить.');
-    const text = data.output?.filter(item => item.type === 'message')
-      .flatMap(item => item.content || []).filter(item => item.type === 'output_text')
-      .map(item => item.text || '').join('');
+    if (!response.ok) {
+      console.warn('AI API rejected request', { status: response.status, code: data?.error?.code, type: data?.error?.type });
+      if ([429, 500, 502, 503, 504].includes(response.status) && attempt < tokenLimits.length - 1) continue;
+      throw httpError(502, 'AI_UNAVAILABLE', 'Сервис анализа сейчас недоступен. Попробуйте позже.');
+    }
+    if (data?.status !== 'completed') {
+      console.warn('AI response not completed', { attempt, status: data?.status, reason: data?.incomplete_details?.reason, usage: data?.usage?.output_tokens });
+      if (data?.status === 'incomplete' && data?.incomplete_details?.reason === 'max_output_tokens' && attempt < tokenLimits.length - 1) continue;
+      throw httpError(502, 'AI_UNAVAILABLE', 'Анализ не завершился. Попробуйте повторить.');
+    }
     let result;
-    try { result = JSON.parse(text); } catch { continue; }
-    const descriptions = ['trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus',
-      'key_levels', 'setup', 'reason', 'invalidation', 'limitations', 'final_conclusion'];
-    if (!result || typeof result !== 'object' ||
-        !['UP', 'DOWN', 'NO_TRADE'].includes(result.verdict) || !EXPIRIES.includes(result.signal_duration_minutes) ||
+    try { result = JSON.parse(responseText(data)); } catch {
+      console.warn('AI response has no valid JSON', { attempt, responseId: data?.id });
+      continue;
+    }
+    if (!result || typeof result !== 'object' || !['UP', 'DOWN'].includes(result.verdict) ||
         !['chart_visible', 'recent_candles_visible', 'sufficient_history'].every(field => typeof result[field] === 'boolean') ||
-        !descriptions.every(field => typeof result[field] === 'string' && result[field].trim())) continue;
+        !['pair', 'timeframe', 'current_price'].every(field => result[field] === null || typeof result[field] === 'string') ||
+        !DESCRIPTION_FIELDS.every(field => typeof result[field] === 'string')) {
+      console.warn('AI response failed shape validation', { attempt, responseId: data?.id });
+      continue;
+    }
+    for (const field of DESCRIPTION_FIELDS) if (!result[field].trim()) result[field] = 'Недостаточно данных на скриншоте.';
+    result.signal_duration_minutes = expiry;
     return result;
   }
-  throw httpError(502, 'AI_INVALID_RESPONSE', 'Анализ не завершился. Попробуйте повторить.');
+  throw httpError(502, 'AI_INVALID_RESPONSE', 'Ответ анализа не был готов. AI Credits не списаны. Попробуйте повторить.');
 }
 function validImage(value) {
   const match = typeof value === 'string' && value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
@@ -453,7 +477,8 @@ async function analyze(request, env, account) {
   const tier = privileged ? levelNamed('ULTRA') : levelNamed(account?.tier);
   if (!account || (!privileged && (!account.activated_at || !tier))) throw httpError(403, 'LOCKED', 'Доступ не активирован');
   if (!env.OPENAI_API_KEY) throw httpError(503, 'AI_NOT_CONFIGURED', 'Анализ ещё не подключён');
-  const { image, mode = 'Fast' } = await readJson(request);
+  const { image, mode = 'Fast', expiry = 3 } = await readJson(request);
+  if (!Number.isInteger(expiry) || !EXPIRIES.includes(expiry)) throw httpError(400, 'INVALID_EXPIRY', 'Выберите экспирацию 1, 3, 5 или 15 минут');
   if (!tier.availableAiModes.includes(mode)) throw httpError(403, 'MODE_LOCKED', 'Этот режим доступен на более высоком уровне');
   if (!validImage(image)) throw httpError(400, 'INVALID_IMAGE', 'Загрузите JPG, PNG или WebP размером до 3,5 МБ');
   const now = Date.now();
@@ -468,22 +493,25 @@ async function analyze(request, env, account) {
   // One pending request per account. The INSERT predicate is a single atomic D1 write.
   const reservation = await env.DB.prepare(`INSERT INTO analyses
     (id, account_id, asset, expiry, verdict, result_json, created_at, status, mode, cost_credits)
-    SELECT ?, a.account_id, '[по скриншоту]', 3, 'NO_TRADE', '{}', ?, 'pending', ?, 0
+    SELECT ?, a.account_id, '[по скриншоту]', ?, 'UP', '{}', ?, 'pending', ?, 0
     FROM accounts a WHERE a.account_id = ?
     AND NOT EXISTS (SELECT 1 FROM analyses WHERE account_id = a.account_id AND status = 'pending' AND created_at > ?)
     AND (? = 1 OR NOT EXISTS (SELECT 1 FROM analyses WHERE account_id = a.account_id AND status = 'done'
-      AND verdict IN ('UP', 'DOWN') AND created_at > ?))
+      AND created_at > ?))
     AND (? = 1 OR (a.activated_at IS NOT NULL AND a.tier = ?
       AND (a.limit_cycle_reset_at IS NULL OR a.limit_cycle_reset_at <= ? OR a.signals_used_in_cycle < ?)
       AND (CASE WHEN a.limit_cycle_reset_at > ? THEN a.credits_spent_in_cycle ELSE 0 END) + ? <= ?))`)
-    .bind(analysisId, now, mode, account.account_id, now - 300_000, privileged ? 1 : 0, now - cooldown,
+    .bind(analysisId, expiry, now, mode, account.account_id, now - 300_000, privileged ? 1 : 0, now - cooldown,
       privileged ? 1 : 0, tier.id, now, tier.signalLimit ?? 2147483647, now, cost, tier.creditsLimit).run();
   if (!reservation.meta.changes) throw httpError(429, 'RATE_LIMIT', 'Запрос уже выполняется, действует пауза между сигналами или лимит исчерпан.');
   try {
-    const result = await analyzeImage(env, image, mode);
-    result.pair = typeof result.pair === 'string' ? result.pair.trim().toUpperCase() : null;
-    result.timeframe = typeof result.timeframe === 'string' ? result.timeframe.trim().toUpperCase() : null;
-    result.current_price = typeof result.current_price === 'string' ? result.current_price.trim().replace(',', '.') : null;
+    const result = await analyzeImage(env, image, mode, expiry);
+    const pairText = typeof result.pair === 'string' ? result.pair.trim().toUpperCase().replace(/[\s-]/g, '') : '';
+    result.pair = ASSETS.find(asset => asset === pairText || asset.replace('/', '') === pairText) || null;
+    const timeframeText = typeof result.timeframe === 'string' ? result.timeframe.trim().toUpperCase().replace(/\s/g, '') : '';
+    result.timeframe = /^(?:M|H)[1-9][0-9]?$/.test(timeframeText) ? timeframeText
+      : /^([1-9][0-9]?)(M|H)$/.test(timeframeText) ? timeframeText.replace(/^([1-9][0-9]?)(M|H)$/, '$2$1') : null;
+    result.current_price = typeof result.current_price === 'string' ? result.current_price.trim().replace(/[\s\u00a0]/g, '').replace(',', '.') : null;
     if (!result.pair || !ASSETS.includes(result.pair))
       throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'Не удалось определить поддерживаемую торговую пару. Загрузите полный скриншот с названием пары.');
     if (!result.timeframe || !/^(?:M[1-9][0-9]?|H[1-9][0-9]?)$/.test(result.timeframe))
@@ -493,22 +521,22 @@ async function analyze(request, env, account) {
     if (!result.chart_visible || !result.recent_candles_visible || !result.sufficient_history)
       throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'На скриншоте недостаточно графика или последних свечей. Загрузите полный график с видимой историей.');
     const createdAt = Date.now();
-    const signalDuration = result.verdict === 'NO_TRADE' ? null : result.signal_duration_minutes * 60;
-    const signalExpiresAt = signalDuration ? createdAt + signalDuration * 1000 : null;
-    const latestAccount = signalDuration && !privileged
+    const signalDuration = expiry * 60;
+    const signalExpiresAt = createdAt + signalDuration * 1000;
+    const latestAccount = !privileged
       ? await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(account.account_id).first()
       : account;
     const currentTier = privileged ? tier : levelNamed(latestAccount?.tier);
-    if (signalDuration && !privileged && (!latestAccount?.activated_at || !currentTier?.availableAiModes.includes(mode)))
+    if (!privileged && (!latestAccount?.activated_at || !currentTier?.availableAiModes.includes(mode)))
       throw httpError(409, 'ACCOUNT_CHANGED', 'Доступ изменился во время анализа. Повторите запрос.');
     const saveResult = env.DB.prepare(`UPDATE analyses SET status = 'done', verdict = ?, result_json = ?, created_at = ?,
       asset = ?, expiry = ?, cost_credits = ?, signal_duration_seconds = ?, signal_expires_at = ?
       WHERE id = ? AND status = 'pending' AND (? = 1 OR EXISTS
         (SELECT 1 FROM accounts WHERE account_id = ? AND last_committed_analysis_id = ?))`)
       .bind(result.verdict, JSON.stringify(result), createdAt, result.pair, result.signal_duration_minutes,
-        signalDuration ? cost : 0, signalDuration, signalExpiresAt, analysisId,
-        privileged || !signalDuration ? 1 : 0, account.account_id, analysisId);
-    if (signalDuration && !privileged) {
+        cost, signalDuration, signalExpiresAt, analysisId,
+        privileged ? 1 : 0, account.account_id, analysisId);
+    if (!privileged) {
       // Both writes commit together. The second is gated by the account update's marker.
       const [commit, saved] = await env.DB.batch([
         env.DB.prepare(`UPDATE accounts SET
@@ -533,7 +561,7 @@ async function analyze(request, env, account) {
     }
     const current = privileged ? account : await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(account.account_id).first();
     return { id: analysisId, asset: result.pair, mode, created_at: createdAt,
-      signalCreatedAt: signalDuration ? createdAt : null,
+      signalCreatedAt: createdAt,
       signalExpiresAt, signalDuration, serverTime: Date.now(),
       account: await accountStatus(env, current), result };
   } catch (error) {
@@ -552,7 +580,7 @@ async function handler(request, env) {
     referralUrl: env.REFERRAL_URL || 'https://bdclick.app/smart/site',
     attributionConfigured: Boolean(env.PARTNER_API_KEY && env.POSTBACK_SECRET && env.DB),
     adminConfigured: Boolean(env.DB && OWNER_CODE_PATTERN.test(env.ADMIN_ACCESS_CODE || '')),
-    assets: ASSETS, expiries: EXPIRIES, levels: LEVELS, aiModes: AI_MODES,
+    assets: ASSETS, expiries: EXPIRIES, analysisApiVersion: 2, levels: LEVELS, aiModes: AI_MODES,
   }, 200, headers);
   if (route === '/go' && request.method === 'GET') {
     if (!env.PARTNER_API_KEY || !env.POSTBACK_SECRET) return error(503, 'NOT_CONFIGURED', 'Регистрация пока не подключена', headers);
@@ -620,7 +648,7 @@ async function handler(request, env) {
         return error(403, 'LOCKED', 'Доступ не активирован', headers);
       const data = await env.DB.prepare(`SELECT id, asset, expiry, verdict, result_json, created_at,
         mode, signal_duration_seconds, signal_expires_at
-        FROM analyses WHERE account_id = ? AND status = 'done' ORDER BY created_at DESC LIMIT 8`).bind(account.account_id).all();
+        FROM analyses WHERE account_id = ? AND status = 'done' AND verdict IN ('UP', 'DOWN') ORDER BY created_at DESC LIMIT 8`).bind(account.account_id).all();
       return json({ serverTime: Date.now(), analyses: data.results.map(item => ({
         id: item.id, asset: item.asset, mode: item.mode, created_at: item.created_at,
         signalCreatedAt: item.signal_expires_at ? item.created_at : null,
@@ -636,6 +664,7 @@ async function handler(request, env) {
   }
 }
 
+export { analyzeImage, analyze };
 export default {
   fetch: handler,
   async scheduled(_event, env) {
