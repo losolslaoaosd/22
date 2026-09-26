@@ -10,10 +10,10 @@ import "./style.css"
 
 function HeaderActions() {
   return <nav className="header-actions" aria-label="Быстрые действия">
-    <Button id="header-upgrade" type="button" variant="ghost" className="hidden">Повысить уровень</Button>
-    <Button id="header-account" type="button" variant="ghost" className="hidden">Аккаунт</Button>
-    <Button id="header-owner" type="button" variant="ghost" className="hidden">Панель владельца</Button>
-    <Button asChild variant="outline" className="header-contact"><a href="https://t.me/bluefin_m" target="_blank" rel="noopener noreferrer">Связаться <ArrowUpRight aria-hidden="true" /></a></Button>
+    <Button id="header-upgrade" type="button" variant="outline" size="sm" className="header-upgrade hidden"><ArrowUpRight data-icon="inline-start" aria-hidden="true" />Повысить уровень</Button>
+    <Button id="header-account" type="button" variant="ghost" size="sm" className="hidden">Аккаунт</Button>
+    <Button asChild variant="outline" size="sm" className="header-contact"><a href="https://t.me/bluefin_m" target="_blank" rel="noopener noreferrer">Связаться со мной <ArrowUpRight data-icon="inline-end" aria-hidden="true" /></a></Button>
+    <Button id="header-owner" type="button" variant="ghost" size="sm" className="hidden">Панель владельца</Button>
   </nav>
 }
 

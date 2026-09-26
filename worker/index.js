@@ -8,6 +8,7 @@ const OWNER_ACCOUNT = '__blufin_owner__';
 const UNLIMITED_ACCOUNT = '99105';
 const ACCOUNT_FIELDS = 'account_id, registered_at, verified_at, activated_at, qualified_deposit_cents, tier, limit_cycle_started_at, limit_cycle_reset_at, signals_used_in_cycle, credits_spent_in_cycle, role, password_hash, password_salt, password_iterations, must_change_password, session_version';
 const PASSWORD_ITERATIONS = 310_000;
+const OWNER_CODE_PATTERN = /^(?:[0-9a-f]{64}|[0-9]{10,16})$/;
 
 function cors(origin, env) {
   return origin && origin === env.SITE_ORIGIN ? {
@@ -144,7 +145,7 @@ async function limitClaims(request, env, scope = 'claim', limit = 10, window = 6
   if (!result.meta.changes) throw httpError(429, 'TOO_MANY_CLAIMS', scope === 'owner' ? 'Слишком много попыток. Попробуйте через 15 минут.' : 'Слишком много проверок ID. Попробуйте через минуту.');
 }
 async function ownerLogin(request, env) {
-  if (!/^[0-9a-f]{64}$/.test(env.ADMIN_ACCESS_CODE || '')) throw httpError(503, 'ADMIN_NOT_CONFIGURED', 'Вход владельца ещё не настроен');
+  if (!OWNER_CODE_PATTERN.test(env.ADMIN_ACCESS_CODE || '')) throw httpError(503, 'ADMIN_NOT_CONFIGURED', 'Вход владельца ещё не настроен');
   if (await env.DB.prepare("SELECT account_id FROM accounts WHERE role = 'owner' AND password_hash IS NOT NULL LIMIT 1").bind().first())
     throw httpError(410, 'OWNER_MIGRATED', 'Вход владельца перенесён на ID и пароль BLUFIN+');
   const { code } = await readJson(request, 1000);
@@ -400,29 +401,41 @@ const schema = {
 };
 async function analyzeImage(env, image, mode) {
   if (!env.OPENAI_API_KEY) throw httpError(503, 'AI_NOT_CONFIGURED', 'Анализ ещё не подключён');
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST', signal: AbortSignal.timeout(60_000),
-    headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: env.OPENAI_MODEL || 'gpt-5-mini', store: false,
-      max_output_tokens: mode === 'Maximum' ? 1900 : mode === 'Deep' ? 1350 : 950,
-      text: { format: { type: 'json_schema', name: 'chart_analysis', strict: true, schema } },
-      instructions: `Ты аналитик графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Сначала прочитай с самого изображения торговую пару (pair, формат EUR/USD), текущую цену (current_price) и таймфрейм (timeframe, например M1). Если любой параметр не читается, верни для него null, никогда не угадывай. Отдельно выставь chart_visible, recent_candles_visible и sufficient_history в true только когда на скриншоте реально видны график, последние свечи и достаточно свечей для анализа. Пара должна быть из списка: ${ASSETS.join(', ')}. OTC, другие пары и неполные скриншоты не подходят. Анализируй только видимые свечи, не выдумывай живые котировки, внешнюю историю, другие таймфреймы, индикаторы или уровни. historical_match описывает только похожие паттерны на данном скриншоте, ai_consensus означает согласованность видимых признаков, а не мнение нескольких моделей. Если ясного сценария нет, верни NO_TRADE. Для UP/DOWN выбери обоснованную длительность в минутах только из 1, 3, 5, 15; не обещай результата. В limitations укажи недоступные данные.`,
-      input: [{ role: 'user', content: [
-        { type: 'input_text', text: 'Определи параметры графика непосредственно по скриншоту и проанализируй видимые данные.' },
-        { type: 'input_image', image_url: image, detail: 'high' },
-      ] }],
-    }),
-  });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) throw httpError(502, 'AI_UNAVAILABLE', 'Сервис анализа сейчас недоступен');
-  const text = data?.output?.flatMap(item => item.content || []).find(item => item.type === 'output_text')?.text;
-  if (!text) throw httpError(502, 'AI_INVALID_RESPONSE', 'Сервис не вернул анализ');
-  let result;
-  try { result = JSON.parse(text); } catch { throw httpError(502, 'AI_INVALID_RESPONSE', 'Сервис вернул некорректный анализ'); }
-  if (!['UP', 'DOWN', 'NO_TRADE'].includes(result.verdict) || !EXPIRIES.includes(result.signal_duration_minutes))
-    throw httpError(502, 'AI_INVALID_RESPONSE', 'Некорректный ответ анализа');
-  return result;
+  const model = env.OPENAI_MODEL || 'gpt-5-mini';
+  const tokenLimits = { Fast: [3000, 5500], Deep: [4500, 7500], Maximum: [6500, 10000] }[mode];
+  for (const maxOutputTokens of tokenLimits) {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST', signal: AbortSignal.timeout(60_000),
+      headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model, store: false, max_output_tokens: maxOutputTokens,
+        ...(model.startsWith('gpt-5') ? { reasoning: { effort: 'low' } } : {}),
+        text: { format: { type: 'json_schema', name: 'chart_analysis', strict: true, schema } },
+        instructions: `Ты аналитик графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Сначала прочитай с самого изображения торговую пару (pair, формат EUR/USD), текущую цену (current_price) и таймфрейм (timeframe, например M1). Если любой параметр не читается, верни для него null, никогда не угадывай. Отдельно выставь chart_visible, recent_candles_visible и sufficient_history в true только когда на скриншоте реально видны график, последние свечи и достаточно свечей для анализа. Пара должна быть из списка: ${ASSETS.join(', ')}. OTC, другие пары и неполные скриншоты не подходят. Анализируй только видимые свечи, не выдумывай живые котировки, внешнюю историю, другие таймфреймы, индикаторы или уровни. historical_match описывает только похожие паттерны на данном скриншоте, ai_consensus означает согласованность видимых признаков, а не мнение нескольких моделей. Если ясного сценария нет, верни NO_TRADE. Для UP/DOWN выбери обоснованную длительность в минутах только из 1, 3, 5, 15; не обещай результата. В limitations укажи недоступные данные.`,
+        input: [{ role: 'user', content: [
+          { type: 'input_text', text: 'Определи параметры графика непосредственно по скриншоту и проанализируй видимые данные.' },
+          { type: 'input_image', image_url: image, detail: 'high' },
+        ] }],
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) throw httpError(502, 'AI_UNAVAILABLE', 'Сервис анализа сейчас недоступен');
+    if (data?.status === 'incomplete' && data.incomplete_details?.reason === 'max_output_tokens') continue;
+    if (data?.status !== 'completed') throw httpError(502, 'AI_UNAVAILABLE', 'Анализ не завершился. Попробуйте повторить.');
+    const text = data.output?.filter(item => item.type === 'message')
+      .flatMap(item => item.content || []).filter(item => item.type === 'output_text')
+      .map(item => item.text || '').join('');
+    let result;
+    try { result = JSON.parse(text); } catch { continue; }
+    const descriptions = ['trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus',
+      'key_levels', 'setup', 'reason', 'invalidation', 'limitations', 'final_conclusion'];
+    if (!result || typeof result !== 'object' ||
+        !['UP', 'DOWN', 'NO_TRADE'].includes(result.verdict) || !EXPIRIES.includes(result.signal_duration_minutes) ||
+        !['chart_visible', 'recent_candles_visible', 'sufficient_history'].every(field => typeof result[field] === 'boolean') ||
+        !descriptions.every(field => typeof result[field] === 'string' && result[field].trim())) continue;
+    return result;
+  }
+  throw httpError(502, 'AI_INVALID_RESPONSE', 'Анализ не завершился. Попробуйте повторить.');
 }
 function validImage(value) {
   const match = typeof value === 'string' && value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
@@ -538,7 +551,7 @@ async function handler(request, env) {
   if (route === '/api/config' && request.method === 'GET') return json({
     referralUrl: env.REFERRAL_URL || 'https://bdclick.app/smart/site',
     attributionConfigured: Boolean(env.PARTNER_API_KEY && env.POSTBACK_SECRET && env.DB),
-    adminConfigured: Boolean(env.DB && /^[0-9a-f]{64}$/.test(env.ADMIN_ACCESS_CODE || '')),
+    adminConfigured: Boolean(env.DB && OWNER_CODE_PATTERN.test(env.ADMIN_ACCESS_CODE || '')),
     assets: ASSETS, expiries: EXPIRIES, levels: LEVELS, aiModes: AI_MODES,
   }, 200, headers);
   if (route === '/go' && request.method === 'GET') {

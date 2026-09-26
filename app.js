@@ -68,9 +68,9 @@ function updateTerminalAccount() {
   const rank = state.config?.levels?.findIndex(level => level.id === a.tier) + 1;
   const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#6B7280';
   $('#account-widget').style.setProperty('--tier-color', tint);
-  $('#summary-tier').textContent = isOwner() ? 'ПРОФИЛЬ' : a.tier || 'BASE';
-  $('#summary-credits').textContent = a.creditsTotal === null ? 'AI Credits ∞' : `${a.creditsRemaining} AI Credits`;
-  $('#summary-signals').textContent = `${a.signalsUsed || 0}/${a.signalLimit === null ? '∞' : a.signalLimit}`;
+  $('#summary-tier').textContent = a.tier || 'BASE';
+  $('#summary-credits').textContent = a.creditsTotal === null ? 'AI Credits: безлимит' : `${a.creditsRemaining} AI Credits`;
+  $('#summary-signals').textContent = a.signalLimit === null ? 'Сигналы: безлимит' : `${a.signalsUsed || 0} / ${a.signalLimit} сигналов`;
   $('#summary-next').textContent = a.nextLevel && !isOwner() ? `До ${a.nextLevel}: ${money(Math.max(0, a.nextLevelDepositCents - a.depositCents))}` : '';
   $('#status-tier').textContent = a.tier || 'Нет уровня';
   $('#status-rank').textContent = isOwner() ? 'Владелец' : `Уровень ${rank || 1}`;
@@ -207,14 +207,6 @@ function moscow(date = new Date(), withSeconds = false) {
 }
 function show(view) {
   for (const name of views) $(`#${name}`).classList.toggle('hidden', name !== view);
-  $('#onboarding-progress').classList.toggle('hidden', !['register', 'access', 'password-setup', 'deposit'].includes(view));
-  const stages = ['register', 'access', 'deposit'];
-  for (const element of $('#onboarding-progress').querySelectorAll('[data-step]')) {
-    element.classList.toggle('active', element.dataset.step === view || (view === 'password-setup' && element.dataset.step === 'access'));
-    element.classList.toggle('completed', stages.indexOf(element.dataset.step) < stages.indexOf(view));
-    if (element.dataset.step === view) element.setAttribute('aria-current', 'step');
-    else element.removeAttribute('aria-current');
-  }
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (state.polling) { clearInterval(state.polling); state.polling = null; }
   if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
@@ -223,9 +215,9 @@ function show(view) {
   $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
   $('#menu-login').classList.toggle('hidden', Boolean(state.token));
   $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
-  $('#header-upgrade')?.classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
-  $('#header-account')?.classList.toggle('hidden', state.status !== 'active' || view === 'account');
-  $('#header-owner')?.classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
+  $('#header-upgrade')?.classList.toggle('hidden', state.status !== 'active' || isOwner() || state.account?.tier === 'ULTRA');
+  $('#header-account')?.classList.toggle('hidden', state.status !== 'active');
+  $('#header-owner')?.classList.toggle('hidden', !isOwner());
   $('#account-widget').classList.toggle('hidden', state.status !== 'active');
   $('#account-chip').classList.add('hidden');
   $('#logout-button').classList.toggle('hidden', !state.token);
@@ -451,11 +443,32 @@ async function refreshSession(navigate = true) {
   }
 }
 function message(node, text, isError = true) {
+  if (node.id === 'analysis-error') node.classList.remove('analysis-error-card');
   node.classList.remove('hidden');
   node.style.color = isError ? '' : '#a6eeda';
   node.style.background = isError ? '' : '#163a3c';
   node.style.borderColor = isError ? '' : '#2f746b';
   node.textContent = text;
+}
+function showAnalysisError(error) {
+  const screenshotIssue = ['SCREENSHOT_INCOMPLETE', 'INVALID_IMAGE'].includes(error.code);
+  const box = $('#analysis-error');
+  box.classList.add('analysis-error-card');
+  box.classList.remove('hidden');
+  box.replaceChildren();
+  const heading = document.createElement('strong');
+  heading.textContent = screenshotIssue ? 'Не удалось распознать данные графика' : 'Анализ не завершился';
+  const description = document.createElement('span');
+  description.textContent = screenshotIssue
+    ? 'Проверьте, что на скриншоте видны торговая пара, цена, таймфрейм и сам график.'
+    : error.code === 'AI_INVALID_RESPONSE'
+      ? 'Ответ не был готов. AI Credits за этот запрос не списаны. Попробуйте повторить анализ.'
+      : 'Попробуйте повторить анализ. Если запрос прервался, проверьте баланс перед новой попыткой.';
+  const action = document.createElement('button');
+  action.type = 'button'; action.className = 'button secondary';
+  action.textContent = screenshotIssue ? 'Заменить изображение' : 'Повторить анализ';
+  action.addEventListener('click', () => screenshotIssue ? $('#chart-file').click() : $('#analysis-form').requestSubmit());
+  box.append(heading, description, action);
 }
 function setFile(file) {
   if (!file) return;
@@ -835,11 +848,10 @@ async function init() {
       if (result.account) { state.account = result.account; updateTerminalAccount(); }
     } catch (error) {
       showTerminal(state.latestResult ? 'result' : 'empty');
-      message($('#analysis-error'), error.message);
+      showAnalysisError(error);
       $('#analysis-error').scrollIntoView({ behavior: 'smooth', block: 'center' });
     } finally { button.disabled = false; button.innerHTML = 'НАЧАТЬ АНАЛИЗ <span aria-hidden="true">↗</span>'; }
   });
 }
 if (section && !state.token) $('#login').classList.remove('hidden');
 init();
-
