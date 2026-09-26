@@ -259,7 +259,11 @@ function disableRegistration() {
 function moscow(date = new Date(), withSeconds = false) {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', ...(withSeconds ? { second: '2-digit' } : {}) }).format(date);
 }
-function show(view) {
+function show(view, historyMode = 'replace') {
+  if (historyMode === 'push' && window.history.state?.blufinView !== view)
+    window.history.pushState({ ...window.history.state, blufinView: view }, '', window.location.href);
+  else if (historyMode === 'replace')
+    window.history.replaceState({ ...window.history.state, blufinView: view }, '', window.location.href);
   for (const name of views) $(`#${name}`).classList.toggle('hidden', name !== view);
   window.scrollTo({ top: 0, behavior: 'smooth' });
   if (state.polling) { clearInterval(state.polling); state.polling = null; }
@@ -268,6 +272,7 @@ function show(view) {
   $('#menu-terminal').classList.toggle('hidden', state.status !== 'active' || view === 'dashboard');
   $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
   $('#menu-login').classList.toggle('hidden', Boolean(state.token));
+  $('#menu-logout').classList.toggle('hidden', !state.token);
   $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
   $('#header-upgrade')?.classList.toggle('hidden', state.status !== 'active' || isOwner() || state.account?.tier === 'ULTRA');
   $('#header-account')?.classList.toggle('hidden', state.status !== 'active');
@@ -283,6 +288,19 @@ function show(view) {
   if (view === 'password-setup') $('#setup-account-id').textContent = state.accountId || '';
   if (view === 'deposit') updateActivation();
 }
+function navigate(view) { show(view, 'push'); }
+function canRestoreView(view) {
+  if (!section && ['landing', 'login', 'register', 'access'].includes(view)) return true;
+  if (view === 'password-setup') return state.status !== 'guest' && state.account?.passwordConfigured === false;
+  if (view === 'deposit') return state.status === 'deposit';
+  if (view === 'dashboard') return state.status === 'active' && section === 'app';
+  if (view === 'account') return state.status === 'active' && section === 'account';
+  return view === 'owner-stats-view' && state.status === 'active' && section === 'owner' && isOwner();
+}
+window.addEventListener('popstate', event => {
+  if (canRestoreView(event.state?.blufinView)) show(event.state.blufinView, 'none');
+  else routeFromStatus();
+});
 function routeFromStatus() {
   if (state.status !== 'guest' && state.role !== 'admin' && state.account?.passwordConfigured === false)
     return show('password-setup');
@@ -465,7 +483,8 @@ function acceptAuth(result) {
   state.accountId = result.accountId || null;
   state.account = result;
   state.latestResult = null;
-  routeFromStatus();
+  if (!section && result.passwordConfigured === false && result.role !== 'admin') navigate('password-setup');
+  else routeFromStatus();
 }
 function clearAuth() {
   state.token = null; state.status = 'guest'; state.role = null; state.accountId = null; state.account = null;
@@ -475,7 +494,7 @@ function clearAuth() {
   if (section) window.location.replace(siteRoot.href);
   else routeFromStatus();
 }
-async function refreshSession(navigate = true) {
+async function refreshSession(navigate = true, preserveHistory = false) {
   if (!state.token && apiBase) {
     state.status = 'guest'; state.accountId = null; state.role = null; state.account = null;
     if (navigate) routeFromStatus();
@@ -491,7 +510,7 @@ async function refreshSession(navigate = true) {
     if (account.serverTime) state.clockOffset = Date.now() - account.serverTime;
     if (account.status === 'active') updateTerminalAccount();
     if (navigate && changed) routeFromStatus();
-    if (!navigate && changed && account.status === 'active') routeFromStatus();
+    if (!navigate && changed && !preserveHistory && ['active', 'guest'].includes(account.status)) routeFromStatus();
     if (account.status === 'deposit') updateActivation();
     return account;
   } catch {
@@ -505,6 +524,11 @@ function message(node, text, isError = true) {
   node.style.background = isError ? '' : '#163a3c';
   node.style.borderColor = isError ? '' : '#2f746b';
   node.textContent = text;
+}
+async function logoutCurrent() {
+  const request = state.token && !staticPreview ? api('/api/auth/logout', { method: 'POST', keepalive: true }).catch(() => {}) : Promise.resolve();
+  clearAuth();
+  await request;
 }
 function showAnalysisError(error) {
   const screenshotIssue = ['SCREENSHOT_INCOMPLETE', 'INVALID_IMAGE'].includes(error.code);
@@ -675,20 +699,23 @@ async function init() {
       const depositLink = document.querySelector('#deposit a.button');
       depositLink.href = `${apiBase}/go`;
     }
-    await refreshSession(false);
-    routeFromStatus();
+    await refreshSession(false, true);
+    const previousView = window.history.state?.blufinView;
+    if (performance.getEntriesByType('navigation')[0]?.type === 'back_forward' && canRestoreView(previousView))
+      show(previousView, 'none');
+    else routeFromStatus();
   } catch {
     disableRegistration();
     message($('#register-message'), 'Сервер проверки сейчас недоступен. Регистрация временно отключена.');
     message($('#id-message'), 'Сервер проверки сейчас недоступен. Проверка ID временно отключена.', false);
     show('landing');
   }
-  $('#begin-button').addEventListener('click', () => show('register'));
-  for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => show('login'));
+  $('#begin-button').addEventListener('click', () => navigate('register'));
+  for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => navigate('login'));
   $('#header-upgrade')?.addEventListener('click', openUpgrade);
   $('#header-account')?.addEventListener('click', () => window.location.assign(sectionUrl('account')));
   $('#header-owner')?.addEventListener('click', () => window.location.assign(sectionUrl('owner')));
-  $('#login-first').addEventListener('click', () => show('register'));
+  $('#login-first').addEventListener('click', () => navigate('register'));
   $('#forgot-password').addEventListener('click', () => $('#forgot-dialog').showModal());
   $('#close-forgot').addEventListener('click', () => $('#forgot-dialog').close());
   $('#login-form').addEventListener('submit', async event => {
@@ -712,12 +739,18 @@ async function init() {
     try {
       const result = await api('/api/auth/setup', { method: 'POST', body: JSON.stringify({ password }) });
       $('#setup-form').reset(); acceptAuth(result);
-    } catch (error) { message($('#setup-message'), error.message); }
+    } catch (error) {
+      message($('#setup-message'), error.code === 'ACCOUNT_EXISTS'
+        ? 'Пароль уже создан. Выйдите и войдите с этим паролем.' : error.message);
+    }
     finally { button.disabled = false; }
   });
-  $('#go-to-verification').addEventListener('click', () => show('access'));
-  $('#back-to-registration').addEventListener('click', () => show('register'));
-  $('#continue-activation').addEventListener('click', () => show('deposit'));
+  $('#setup-back').addEventListener('click', () => navigate('access'));
+  $('#setup-logout').addEventListener('click', logoutCurrent);
+  $('#deposit-logout').addEventListener('click', logoutCurrent);
+  $('#go-to-verification').addEventListener('click', () => navigate('access'));
+  $('#back-to-registration').addEventListener('click', () => navigate('register'));
+  $('#continue-activation').addEventListener('click', () => navigate('deposit'));
   $('#owner-stats-link').addEventListener('click', () => window.location.assign(sectionUrl('owner')));
   $('#menu-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
   $('#menu-account').addEventListener('click', () => window.location.assign(sectionUrl('account')));
@@ -779,9 +812,8 @@ async function init() {
   $('#upgrade-dialog').addEventListener('click', event => { if (event.target.id === 'upgrade-dialog') event.target.close(); });
   setInterval(updateCycleTime, 30_000);
   $('#back-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
-  $('#account-logout').addEventListener('click', async () => {
-    try { await api('/api/auth/logout', { method: 'POST' }); } finally { clearAuth(); }
-  });
+  $('#account-logout').addEventListener('click', logoutCurrent);
+  $('#menu-logout').addEventListener('click', logoutCurrent);
   $('#logout-all').addEventListener('click', async () => {
     const button = $('#logout-all'); button.disabled = true;
     try { await api('/api/auth/logout-all', { method: 'POST' }); clearAuth(); }
@@ -840,7 +872,7 @@ async function init() {
       message($('#id-message'), error.message + (error.code === 'ID_NOT_FOUND' ? ' Перейдите к регистрации на предыдущем шаге.' : ''));
       if (error.code === 'ACCOUNT_EXISTS') {
         const login = uiNode('button', 'Перейти ко входу', 'text-link'); login.type = 'button';
-        login.addEventListener('click', () => show('login'), { once: true }); $('#id-message').append(login);
+        login.addEventListener('click', () => navigate('login'), { once: true }); $('#id-message').append(login);
       }
     }
     finally { button.disabled = false; button.innerHTML = 'Проверить аккаунт <span aria-hidden="true">→</span>'; }

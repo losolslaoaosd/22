@@ -139,6 +139,17 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 #register .access-aside .aside-lines { margin: 18px 0 0; }
 #register .aside-lines > div { min-height: 69px; }
 #register .aside-lines > div:not(:last-child)::after { height: 39px; }
+.setup-actions { display: flex; gap: 10px; margin-top: 16px; }
+.setup-actions .button { flex: 1; min-width: 0; }
+.deposit-logout { display: block; margin-top: 16px; }
+#password-setup input:-webkit-autofill,
+#password-setup input:-webkit-autofill:hover,
+#password-setup input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #f5f7fc;
+  caret-color: #f5f7fc;
+  box-shadow: 0 0 0 1000px #101e33 inset;
+  transition: background-color 9999s;
+}
 .register-next {
   width: min(100%, 350px); height: 33px; display: grid; place-items: center;
   color: #91a8d1; font-size: 22px; line-height: 1; animation: next-arrow 3.5s ease-in-out infinite;
@@ -212,6 +223,8 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
   .hero-chart-art { inset: 0 -14% -5%; }
   .hero-candles { height: 90%; }
   #register .access-aside { height: auto; min-height: 0; margin-top: 0; }
+  .setup-actions { flex-wrap: wrap; }
+  .setup-actions .button { flex: 1 1 130px; }
   #access .id-input-wrap, #access .access-form .button, #access .access-primary > .button { width: 100%; }
   #expiry-options { max-width: none; }
   .hero-amount { min-width: 68px; padding: 6px 8px; font-size: 12px; }

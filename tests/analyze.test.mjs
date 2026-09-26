@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { analyze } from '../worker/index.js';
+import { analyze, setupPassword } from '../worker/index.js';
 
 const account = {
   account_id: '12345', activated_at: Date.now(), tier: 'PRO', role: 'user',
@@ -113,4 +113,49 @@ test('every public entry page exposes the same expiry and level controls', () =>
     for (const expiry of [1, 3, 5, 15]) assert.match(html, new RegExp(`data-expiry="${expiry}"`));
     assert.doesNotMatch(html, /NO_TRADE|ПРОПУСТИТЬ|УЖЕ ЗАРЕГИСТРИРОВАНЫ/);
   }
+});
+
+test('password setup updates account and replaces session in one D1 transaction', async () => {
+  const verified = { ...account, verified_at: Date.now(), password_hash: null, session_version: 1 };
+  let statements;
+  const db = {
+    prepare(sql) {
+      return {
+        bind(...args) {
+          return { sql, args, first: async () => verified };
+        },
+      };
+    },
+    async batch(items) {
+      statements = items;
+      return [{ meta: { changes: 1 } }, { meta: { changes: 1 } }, { meta: { changes: 1 } }];
+    },
+  };
+  const result = await setupPassword(new Request('https://worker.example/api/auth/setup', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${'a'.repeat(64)}` },
+    body: JSON.stringify({ password: 'long-test-password-123' }),
+  }), { DB: db });
+  assert.match(result.token, /^[0-9a-f]{64}$/);
+  assert.equal(result.passwordConfigured, true);
+  assert.equal(statements.length, 3);
+  assert.match(statements[0].sql, /UPDATE accounts SET password_hash/);
+  assert.match(statements[1].sql, /INSERT INTO sessions/);
+  assert.match(statements[2].sql, /DELETE FROM sessions.*token_hash !=/s);
+  assert.equal(statements[1].args[3], verified.account_id);
+});
+
+test('password setup does not return a token when the transaction fails', async () => {
+  const verified = { ...account, verified_at: Date.now(), password_hash: null, session_version: 1 };
+  const db = {
+    prepare(sql) {
+      return { bind(...args) { return { sql, args, first: async () => verified }; } };
+    },
+    async batch() { throw new Error('database unavailable'); },
+  };
+  await assert.rejects(setupPassword(new Request('https://worker.example/api/auth/setup', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${'a'.repeat(64)}` },
+    body: JSON.stringify({ password: 'long-test-password-123' }),
+  }), { DB: db }), error => error.code === 'PASSWORD_SETUP_FAILED');
 });
