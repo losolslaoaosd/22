@@ -5,9 +5,9 @@ const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 const fallbackLevels = [
   { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#8994A7' },
-  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#4266A6' },
-  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#788FB8' },
-  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#A8B7CF' },
+  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#648DDE' },
+  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#9B83D6' },
+  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#C8A777' },
   { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#D5B967' },
 ];
 function levels() { return state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels; }
@@ -36,8 +36,12 @@ function renderLevels() {
     const signals = document.createElement('strong'); signals.className = 'level-signals';
     signals.textContent = level.signalLimit === null ? 'Безлимит' : `${level.signalLimit} ${level.signalLimit === 3 ? 'сигнала' : 'сигналов'} / 24 ч`;
     const extra = document.createElement('div'); extra.className = 'level-extra';
-    extra.textContent = `${level.creditsLimit} AI Credits · ${level.availableAiModes.length === 3 ? 'Все режимы' : level.availableAiModes.length === 2 ? 'Fast + Deep' : 'Fast AI'}`;
-    card.append(title, price, signals, extra); return card;
+    const modes = level.availableAiModes.map(mode => `${mode.toUpperCase()} AI`).join(' · ');
+    extra.textContent = `${level.creditsLimit.toLocaleString('en-US')} AI Credits`;
+    const abilities = document.createElement('div'); abilities.className = 'level-modes'; abilities.textContent = modes;
+    const detail = document.createElement('small'); detail.className = 'level-detail';
+    detail.textContent = level.id === 'ULTRA' ? 'Максимальный доступ' : level.id === 'ADVANCED' ? 'Расширенные лимиты' : level.id === 'PRO' ? 'Все AI режимы' : level.id === 'PLUS' ? 'Глубокий анализ' : 'Базовый анализ';
+    card.append(title, price, signals, extra, abilities, detail); return card;
   });
   $('#public-level-cards').replaceChildren(...cards);
   $('#activation-levels').replaceChildren(...cards.map(card => card.cloneNode(true)));
@@ -104,6 +108,7 @@ function updateTerminalAccount() {
   }
   if (!a.nextLevel && !isOwner()) $('#status-reset').title = 'Максимальный уровень открыт';
   $('#status-upgrade').classList.toggle('hidden', !a.nextLevel || isOwner());
+  $('#dashboard-upgrade').classList.toggle('hidden', !a.nextLevel || isOwner());
   updateCycleTime();
   updateModes();
 }
@@ -553,8 +558,10 @@ function renderResult(data, scroll = false) {
   direction.classList.toggle('direction-up', r.verdict === 'UP');
   direction.classList.toggle('direction-down', r.verdict === 'DOWN');
   direction.classList.toggle('direction-neutral', r.verdict === 'NO_TRADE');
-  $('#signal-actions').classList.add('hidden');
-  $('#signal-analysis').classList.remove('hidden');
+  $('#signal-actions').classList.remove('hidden');
+  $('#signal-analysis').classList.add('hidden');
+  $('#toggle-analysis').textContent = 'Подробный анализ';
+  $('#toggle-analysis').setAttribute('aria-expanded', 'false');
   $('#signal-timer').classList.toggle('hidden', !actionable);
   $('#signal-status').textContent = actionable ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ НЕ СФОРМИРОВАН';
   $('#signal-stamp').textContent = `${moscow(new Date(data.created_at), true)} МСК`;
@@ -579,11 +586,6 @@ function renderResult(data, scroll = false) {
       $('#timer-label').textContent = seconds ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ ЗАВЕРШЁН';
       $('#signal-status').textContent = seconds ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ ЗАВЕРШЁН';
       panel.classList.toggle('expired', !seconds);
-      if (!seconds && $('#signal-actions').classList.contains('hidden')) {
-        $('#signal-actions').classList.remove('hidden');
-        $('#signal-analysis').classList.add('hidden');
-        $('#toggle-analysis').textContent = 'Открыть разбор';
-      }
       if (!seconds && state.resultTimer) { clearInterval(state.resultTimer); state.resultTimer = null; }
     };
     update();
@@ -591,7 +593,7 @@ function renderResult(data, scroll = false) {
   } else {
     $('#signal-actions').classList.remove('hidden');
     $('#signal-analysis').classList.add('hidden');
-    $('#toggle-analysis').textContent = 'Открыть разбор';
+    $('#toggle-analysis').textContent = 'Подробный анализ';
   }
   if (scroll) $('#signal-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -608,14 +610,14 @@ async function init() {
   if (staticPreview) {
     $('#preview-banner').classList.remove('hidden');
     disableRegistration();
-    $('#register-message').textContent = 'Регистрация откроется после подключения Cloudflare Workers.';
+    message($('#register-message'), 'Регистрация откроется после подключения Cloudflare Workers.');
   }
   try {
     state.config = await api('/api/config');
     renderLevels();
     if (!state.config.attributionConfigured) {
       message($('#id-message'), 'Проверка аккаунтов ещё настраивается. Регистрация через BLUFIN+ откроется после подключения postback.');
-      $('#register-message').textContent = 'Регистрация временно недоступна. Повторите попытку позже.';
+      message($('#register-message'), 'Регистрация временно недоступна. Повторите попытку позже.');
       disableRegistration();
     } else {
       for (const link of document.querySelectorAll('[data-registration-link]')) link.href = `${apiBase}/go`;
@@ -626,7 +628,7 @@ async function init() {
     routeFromStatus();
   } catch {
     disableRegistration();
-    $('#register-message').textContent = 'Сервер проверки сейчас недоступен. Регистрация временно отключена.';
+    message($('#register-message'), 'Сервер проверки сейчас недоступен. Регистрация временно отключена.');
     message($('#id-message'), 'Сервер проверки сейчас недоступен. Проверка ID временно отключена.', false);
     show('landing');
   }
@@ -721,6 +723,7 @@ async function init() {
     }
   });
   $('#status-upgrade').addEventListener('click', () => { $('#account-status').classList.add('hidden'); $('#account-summary').setAttribute('aria-expanded', 'false'); openUpgrade(); });
+  $('#dashboard-upgrade').addEventListener('click', openUpgrade);
   $('#close-upgrade').addEventListener('click', () => $('#upgrade-dialog').close());
   $('#upgrade-dialog').addEventListener('click', event => { if (event.target.id === 'upgrade-dialog') event.target.close(); });
   setInterval(updateCycleTime, 30_000);
@@ -833,7 +836,8 @@ async function init() {
   });
   $('#toggle-analysis').addEventListener('click', () => {
     const hidden = $('#signal-analysis').classList.toggle('hidden');
-    $('#toggle-analysis').textContent = hidden ? 'Открыть разбор' : 'Скрыть разбор';
+    $('#toggle-analysis').textContent = hidden ? 'Подробный анализ' : 'Скрыть анализ';
+    $('#toggle-analysis').setAttribute('aria-expanded', String(!hidden));
   });
   $('#new-analysis').addEventListener('click', () => {
     state.dismissedResultId = state.latestResult?.id || null;
