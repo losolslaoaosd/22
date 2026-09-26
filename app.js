@@ -1,5 +1,5 @@
 const $ = selector => document.querySelector(selector);
-const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: sessionStorage.getItem('blufin_session') };
+const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', expiry: 3, config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: sessionStorage.getItem('blufin_session') };
 const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'account', 'owner-stats-view'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
@@ -7,7 +7,7 @@ const fallbackLevels = [
   { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#8994A7' },
   { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#648DDE' },
   { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#9B83D6' },
-  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#C8A777' },
+  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#C96D76' },
   { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#D5B967' },
 ];
 function levels() { return state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels; }
@@ -32,6 +32,8 @@ function renderLevels() {
     card.className = 'level-card'; card.dataset.tier = level.id;
     card.style.setProperty('--level-color', fallbackLevels.find(item => item.id === level.id)?.color || '#8994A7');
     const title = document.createElement('h3'); title.textContent = level.id;
+    const info = document.createElement('button'); info.type = 'button'; info.className = 'level-info';
+    info.dataset.levelInfo = level.id; info.setAttribute('aria-label', `Подробнее об уровне ${level.id}`); info.textContent = '?';
     const price = document.createElement('strong'); price.className = 'level-price'; price.textContent = `от ${money(level.minDeposit)}`;
     const signals = document.createElement('strong'); signals.className = 'level-signals';
     signals.textContent = level.signalLimit === null ? 'Безлимит' : `${level.signalLimit} ${level.signalLimit === 3 ? 'сигнала' : 'сигналов'} / 24 ч`;
@@ -41,10 +43,40 @@ function renderLevels() {
     const abilities = document.createElement('div'); abilities.className = 'level-modes'; abilities.textContent = modes;
     const detail = document.createElement('small'); detail.className = 'level-detail';
     detail.textContent = level.id === 'ULTRA' ? 'Максимальный доступ' : level.id === 'ADVANCED' ? 'Расширенные лимиты' : level.id === 'PRO' ? 'Все AI режимы' : level.id === 'PLUS' ? 'Глубокий анализ' : 'Базовый анализ';
-    card.append(title, price, signals, extra, abilities, detail); return card;
+    card.append(title, info, price, signals, extra, abilities, detail); return card;
   });
   $('#public-level-cards').replaceChildren(...cards);
   $('#activation-levels').replaceChildren(...cards.map(card => card.cloneNode(true)));
+}
+function openLevelDetails(id) {
+  const list = levels();
+  const index = list.findIndex(level => level.id === id);
+  if (index < 0) return;
+  const level = list[index];
+  const previous = list[index - 1];
+  const purpose = {
+    BASE: 'Для нескольких быстрых проверок в день.',
+    PLUS: 'Для регулярного анализа с доступом к DEEP AI.',
+    PRO: 'Для частого анализа со всеми AI режимами.',
+    ADVANCED: 'Для активной работы с большим дневным лимитом.',
+    ULTRA: 'Для максимального объёма анализа без лимита сигналов.',
+  }[id];
+  const details = [
+    ['Минимальный депозит', money(level.minDeposit)],
+    ['Сигналы за 24 часа', level.signalLimit === null ? 'Безлимит' : String(level.signalLimit)],
+    ['AI Credits за 24 часа', level.creditsLimit.toLocaleString('en-US')],
+    ['AI режимы', level.availableAiModes.map(mode => `${mode.toUpperCase()} AI`).join(' · ')],
+    ['Отличие', previous ? `${level.signalLimit === null ? 'Безлимит сигналов' : `+${level.signalLimit - previous.signalLimit} сигналов`}, +${(level.creditsLimit - previous.creditsLimit).toLocaleString('en-US')} AI Credits${level.availableAiModes.length > previous.availableAiModes.length ? ', новый AI режим' : ''}` : 'Начальный уровень доступа'],
+  ];
+  $('#level-title').textContent = id;
+  const box = $('#level-details'); box.replaceChildren();
+  const listNode = uiNode('dl', '', 'level-detail-list');
+  for (const [label, value] of details) {
+    const row = uiNode('div'); row.append(uiNode('dt', label), uiNode('dd', value)); listNode.append(row);
+  }
+  box.append(listNode, uiNode('p', purpose));
+  $('#level-dialog').style.setProperty('--level-color', fallbackLevels.find(item => item.id === id)?.color || '#8994A7');
+  $('#level-dialog').showModal();
 }
 function updateActivation() {
   const amount = state.account?.depositCents || 0;
@@ -242,7 +274,7 @@ function show(view) {
   $('#header-owner')?.classList.toggle('hidden', !isOwner());
   $('#account-widget').classList.toggle('hidden', state.status !== 'active');
   $('#account-chip').classList.add('hidden');
-  $('#logout-button').classList.toggle('hidden', !state.token);
+
   $('#site-menu').classList.add('hidden');
   $('#site-menu-toggle').setAttribute('aria-expanded', 'false');
   if (view === 'owner-stats-view' && isOwner()) { refreshOwnerStats(); refreshOwnerUsers(false); }
@@ -384,7 +416,7 @@ function renderOwnerUser(data, appendSignals = false) {
   if (!appendSignals && !data.signals.length) list.append(uiNode('li', 'Сигналов пока нет'));
   for (const signal of data.signals) {
     const li = uiNode('li');
-    const direction = { UP: 'ВВЕРХ', DOWN: 'ВНИЗ', NO_TRADE: 'ПРОПУСК' }[signal.verdict] || signal.verdict;
+    const direction = { UP: 'ВВЕРХ', DOWN: 'ВНИЗ' }[signal.verdict] || signal.verdict;
     li.append(uiNode('span', `${signal.pair} · ${(signal.mode || 'Fast').toUpperCase()} · ${direction}`),
       uiNode('span', `${dateLabel(signal.createdAt)} · ${signal.expiresAt && signal.expiresAt > Date.now() - state.clockOffset ? 'Активен' : 'Завершён'}`));
     list.append(li);
@@ -546,30 +578,31 @@ function imagePrepared() {
   items[1]?.classList.add('current');
 }
 function renderResult(data, scroll = false) {
+  if (!['UP', 'DOWN'].includes(data?.result?.verdict)) throw new Error('Сервер не сформировал сигнал. Повторите анализ позже.');
   if (data.serverTime) state.clockOffset = Date.now() - data.serverTime;
   state.latestResult = { ...data, serverTime: undefined };
   state.dismissedResultId = null;
   const r = data.result;
-  const actionable = ['UP', 'DOWN'].includes(r.verdict) && Boolean(data.signalExpiresAt);
+  const actionable = Boolean(data.signalExpiresAt);
   const panel = $('#terminal-result');
-  panel.classList.toggle('no-trade', !actionable);
+
   panel.classList.remove('expired');
   const direction = $('#signal-hero');
   direction.classList.toggle('direction-up', r.verdict === 'UP');
   direction.classList.toggle('direction-down', r.verdict === 'DOWN');
-  direction.classList.toggle('direction-neutral', r.verdict === 'NO_TRADE');
+
   $('#signal-actions').classList.remove('hidden');
   $('#signal-analysis').classList.add('hidden');
   $('#toggle-analysis').textContent = 'Подробный анализ';
   $('#toggle-analysis').setAttribute('aria-expanded', 'false');
   $('#signal-timer').classList.toggle('hidden', !actionable);
-  $('#signal-status').textContent = actionable ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ НЕ СФОРМИРОВАН';
+  $('#signal-status').textContent = 'СИГНАЛ АКТИВЕН';
   $('#signal-stamp').textContent = `${moscow(new Date(data.created_at), true)} МСК`;
   for (const [id, value] of Object.entries({
     pair: r.pair || data.asset, timeframe: r.timeframe || 'Не определён',
     price: r.current_price || 'Не определена',
-    direction: { UP: 'ВВЕРХ', DOWN: 'ВНИЗ', NO_TRADE: 'ПРОПУСТИТЬ' }[r.verdict],
-    duration: actionable ? `${data.signalDuration / 60} мин` : 'Нет сигнала',
+    direction: { UP: 'ВВЕРХ', DOWN: 'ВНИЗ' }[r.verdict],
+    duration: `${data.signalDuration / 60} мин`,
     mode: (data.mode || 'Fast').toUpperCase(),
   })) $(`#signal-${id}`).textContent = value;
   for (const field of ['trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus', 'key_levels', 'invalidation', 'limitations', 'final_conclusion'])
@@ -601,12 +634,27 @@ async function restoreLatest() {
   if (state.latestResult) return renderResult(state.latestResult);
   try {
     const history = await api('/api/history');
-    if (!$('#dashboard').classList.contains('hidden') && history.analyses?.[0] && history.analyses[0].id !== state.dismissedResultId && $('#terminal-processing').classList.contains('hidden'))
-      renderResult({ ...history.analyses[0], serverTime: history.serverTime });
+    const latest = history.analyses?.find(item => ['UP', 'DOWN'].includes(item.result?.verdict));
+    if (!$('#dashboard').classList.contains('hidden') && latest && latest.id !== state.dismissedResultId && $('#terminal-processing').classList.contains('hidden'))
+      renderResult({ ...latest, serverTime: history.serverTime });
   } catch { /* A missing history must not block a new analysis. */ }
 }
 async function init() {
   renderLevels();
+  document.addEventListener('click', event => {
+    const info = event.target.closest('[data-level-info]');
+    if (info) openLevelDetails(info.dataset.levelInfo);
+  });
+  $('#close-level').addEventListener('click', () => $('#level-dialog').close());
+  $('#level-dialog').addEventListener('click', event => { if (event.target.id === 'level-dialog') event.target.close(); });
+  $('#expiry-options').addEventListener('click', event => {
+    const button = event.target.closest('[data-expiry]'); if (!button) return;
+    state.expiry = Number(button.dataset.expiry);
+    for (const option of $('#expiry-options').querySelectorAll('[data-expiry]')) {
+      option.classList.toggle('selected', option === button);
+      option.setAttribute('aria-pressed', String(option === button));
+    }
+  });
   if (staticPreview) {
     $('#preview-banner').classList.remove('hidden');
     disableRegistration();
@@ -614,6 +662,9 @@ async function init() {
   }
   try {
     state.config = await api('/api/config');
+    const expiryReady = state.config.analysisApiVersion >= 2;
+    $('#expiry-options').classList.toggle('hidden', !expiryReady);
+    $('.expiry-heading').classList.toggle('hidden', !expiryReady);
     renderLevels();
     if (!state.config.attributionConfigured) {
       message($('#id-message'), 'Проверка аккаунтов ещё настраивается. Регистрация через BLUFIN+ откроется после подключения postback.');
@@ -669,7 +720,7 @@ async function init() {
   $('#continue-activation').addEventListener('click', () => show('deposit'));
   $('#owner-stats-link').addEventListener('click', () => window.location.assign(sectionUrl('owner')));
   $('#menu-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
-  for (const id of ['status-account', 'menu-account']) $(`#${id}`).addEventListener('click', () => window.location.assign(sectionUrl('account')));
+  $('#menu-account').addEventListener('click', () => window.location.assign(sectionUrl('account')));
   $('#account-back').addEventListener('click', () => window.location.assign(sectionUrl('app')));
   $('#account-upgrade').addEventListener('click', openUpgrade);
   $('#change-password-open').addEventListener('click', () => $('#change-password-dialog').showModal());
@@ -728,10 +779,9 @@ async function init() {
   $('#upgrade-dialog').addEventListener('click', event => { if (event.target.id === 'upgrade-dialog') event.target.close(); });
   setInterval(updateCycleTime, 30_000);
   $('#back-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
-  $('#logout-button').addEventListener('click', async () => {
+  $('#account-logout').addEventListener('click', async () => {
     try { await api('/api/auth/logout', { method: 'POST' }); } finally { clearAuth(); }
   });
-  $('#account-logout').addEventListener('click', () => $('#logout-button').click());
   $('#logout-all').addEventListener('click', async () => {
     const button = $('#logout-all'); button.disabled = true;
     try { await api('/api/auth/logout-all', { method: 'POST' }); clearAuth(); }
@@ -861,7 +911,7 @@ async function init() {
       const image = await imageDataUrl(state.file);
       if (image.length > 4_700_000) throw new Error('Изображение слишком большое. Загрузите более компактный скриншот.');
       imagePrepared();
-      const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, mode: state.mode }) });
+      const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, mode: state.mode, expiry: state.expiry }) });
       renderResult(result, true);
       if (result.account) { state.account = result.account; updateTerminalAccount(); }
     } catch (error) {

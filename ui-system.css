@@ -74,6 +74,85 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 .level-modes { margin-top: 5px; color: #adbfd8; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
 .level-detail { display: block; margin-top: 6px; color: var(--level-color); font-size: 10px; font-weight: 700; }
 .public-levels .level-card { min-height: 136px; }
+.level-card { position: relative; }
+.level-card .level-info {
+  position: absolute; top: 9px; right: 9px; width: 22px; height: 22px;
+  display: grid; place-items: center; padding: 0;
+  border: 1px solid color-mix(in srgb, var(--level-color) 50%, #35435b);
+  border-radius: 50%; background: #0b1729b8; color: var(--level-color);
+  font-size: 12px; font-weight: 800; line-height: 1;
+}
+.level-card .level-info:hover { background: color-mix(in srgb, var(--level-color) 18%, #0b1729); }
+.level-card .level-info:focus-visible { outline: 2px solid var(--level-color); outline-offset: 2px; }
+.level-card h3 { padding-right: 24px; }
+.level-dialog { width: min(440px, calc(100vw - 32px)); border: 1px solid color-mix(in srgb, var(--level-color) 55%, #273756); background: #0d192beb; backdrop-filter: blur(18px); }
+.level-dialog #level-title { color: var(--level-color); }
+.level-detail-list { margin: 12px 0; }
+.level-detail-list > div { display: grid; grid-template-columns: minmax(0, 42%) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid #ffffff19; }
+.level-detail-list dt { color: #9eacc5; font-size: 11px; }
+.level-detail-list dd { margin: 0; color: #eef2fa; font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+.level-dialog #level-details > p { color: #afbdd4; font-size: 12px; line-height: 1.5; }
+
+.header-actions #header-account, .header-actions #header-owner, .header-actions .header-contact {
+  box-sizing: border-box; height: 36px; min-height: 36px; padding: 0 11px;
+  border: 1px solid #8194b04d; border-radius: 9px;
+  background: #ffffff0a; color: #dfe8f7;
+  font-size: 12px; font-weight: 700; line-height: 1.2;
+  box-shadow: none; transform: none;
+}
+.header-actions #header-account:hover, .header-actions #header-owner:hover, .header-actions .header-contact:hover {
+  border-color: #a9bce488; background: #ffffff16; color: #fff; transform: none;
+}
+.account-popover {
+  box-sizing: border-box; width: min(380px, calc(100vw - 28px));
+  padding: 20px; border: 1px solid #8294b648; border-radius: 16px;
+  background: #101c30ed; box-shadow: 0 20px 55px #0009, inset 0 1px #ffffff14;
+  backdrop-filter: blur(20px);
+}
+.account-popover .account-status-title { gap: 10px; margin-bottom: 11px; }
+.account-popover .account-status-title strong, .account-summary #summary-tier { color: var(--tier-color, #d5b967); }
+.account-popover .status-modes { border-radius: 9px; }
+.account-popover .account-status-grid { gap: 8px; }
+.account-popover .account-status-grid > div { min-width: 0; padding: 10px; border: 1px solid #8194b027; border-radius: 10px; background: #ffffff06; }
+.account-popover .account-status-grid strong { overflow-wrap: anywhere; }
+.account-popover #status-upgrade { width: 100%; margin-top: 12px; }
+.level-track .track-step.current { --track-color: #d5b967; color: var(--track-color); }
+.level-track .track-step.current:nth-child(1) { --track-color: #8994a7; }
+.level-track .track-step.current:nth-child(2) { --track-color: #6386c2; }
+.level-track .track-step.current:nth-child(3) { --track-color: #8da8d0; }
+.level-track .track-step.current:nth-child(4) { --track-color: #c96d76; }
+.level-track .track-step.current .track-dot { background: var(--track-color); border-color: var(--track-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--track-color) 20%, transparent); }
+
+.hero-chart-art {
+  inset: 3% -25% -7% -26%;
+  -webkit-mask-image: radial-gradient(ellipse 74% 68% at 50% 55%, #000 42%, #000b 66%, transparent 100%);
+  mask-image: radial-gradient(ellipse 74% 68% at 50% 55%, #000 42%, #000b 66%, transparent 100%);
+}
+.hero-candles {
+  left: -8%; width: 116%; height: 92%; opacity: .53;
+  filter: brightness(.78) saturate(.75) contrast(1.12);
+  mix-blend-mode: screen;
+}
+
+#register .access-grid { align-items: stretch; }
+#register .access-aside { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; }
+#register .access-aside .aside-lines { margin: 18px 0 0; }
+.register-next {
+  width: min(100%, 350px); height: 33px; display: grid; place-items: center;
+  color: #91a8d1; font-size: 22px; line-height: 1; animation: next-arrow 3.5s ease-in-out infinite;
+}
+@keyframes next-arrow { 0%, 100% { opacity: .65; transform: translateY(-2px); } 50% { opacity: 1; transform: translateY(2px); } }
+#access .id-input-wrap { width: min(100%, 330px); }
+#access .access-form .button, #access .access-primary > .button { width: min(100%, 330px); min-height: var(--control-height); height: var(--control-height); border-radius: var(--control-radius); }
+
+#expiry-options {
+  width: 100%; max-width: 410px; height: 42px; margin: 0 0 2px;
+  padding: 3px; border: 1px solid #7488ae48; border-radius: 10px; background: #0d1b31;
+}
+#expiry-options button { font-size: 11px; color: #b1bfd5; transition: background .2s, color .2s; }
+#expiry-options button:hover { background: #ffffff0d; color: #fff; }
+#expiry-options button.selected { background: #334a77; color: #fff; box-shadow: inset 0 1px #ffffff27; }
+.expiry-heading { margin: 15px 0 8px; }
 
 .dashboard-tier-row { display: flex; align-items: center; gap: 10px; margin-bottom: 17px; }
 .dashboard-tier-row .level-track { flex: 1; margin: 0; }
@@ -128,6 +207,11 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 .signal-analysis dd { min-width: 0; overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
+  .hero-chart-art { inset: 0 -14% -5%; }
+  .hero-candles { height: 90%; }
+  #register .access-aside { min-height: 0; }
+  #access .id-input-wrap, #access .access-form .button, #access .access-primary > .button { width: 100%; }
+  #expiry-options { max-width: none; }
   .hero-amount { min-width: 68px; padding: 6px 8px; font-size: 12px; }
   .hero-amount-1 { top: 7%; right: 3%; }
   .hero-amount-2 { top: 35%; left: 1%; }
@@ -142,4 +226,4 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
   .signal-actions .button { flex: 1 1 140px; }
   .signal-analysis dl > div { grid-template-columns: minmax(75px, 30%) minmax(0, 1fr); }
 }
-@media (prefers-reduced-motion: reduce) { .hero-amount { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hero-amount, .register-next { animation: none; opacity: 1; } }
