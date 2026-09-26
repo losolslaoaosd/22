@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./theme.css?v=11" />
   <script src="./pages-config.js" defer></script>
   <script src="./blufin-ui.js?v=9" defer></script>
-  <script src="./app.js?v=9" defer></script>
+  <script src="./app.js?v=10" defer></script>
 </head>
 <body>
   <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
@@ -60,7 +60,7 @@
         <div class="public-levels"><div class="eyebrow"><span class="eyebrow-line"></span> УРОВНИ AI</div><h2>Больше возможностей с каждым уровнем</h2><p>Чем выше уровень аккаунта, тем больше возможностей получает ИИ.</p><div class="levels-chain">Больше депозитов → выше уровень → больше сигналов → больше AI Credits → мощнее анализ</div><div id="public-level-cards" class="level-cards"></div></div>
       </section>
 
-      <section id="login" class="access view hidden"><div class="auth-surface"><span class="step-caption">BLUFIN+ / ВХОД</span><h1>Войти в BLUFIN+</h1><p>Используйте ID Binodex и пароль, созданный для BLUFIN+.</p><form id="login-form" class="access-form"><label for="login-id">ID аккаунта Binodex</label><input id="login-id" type="text" inputmode="numeric" autocomplete="username" required /><label for="login-password">Пароль BLUFIN+</label><input id="login-password" type="password" autocomplete="current-password" required /><button class="button primary" type="submit">Войти</button></form><p id="login-message" class="form-message hidden" role="alert"></p><div class="auth-links"><button id="forgot-password" class="text-link" type="button">Забыли пароль?</button><button id="login-first" class="text-link" type="button">Первый вход? Активировать аккаунт</button></div><details class="owner-code-access"><summary>Вход владельца</summary><form id="owner-code-form" class="access-form"><label for="owner-code">Код владельца</label><input id="owner-code" type="password" autocomplete="off" required /><button class="button secondary" type="submit">Открыть панель владельца</button></form><p id="owner-code-message" class="form-message hidden" role="alert"></p></details></div></section>
+      <section id="login" class="access view hidden"><div class="auth-surface"><span class="step-caption">BLUFIN+ / ВХОД</span><h1>Войти в BLUFIN+</h1><p>Используйте ID Binodex и пароль, созданный для BLUFIN+.</p><form id="login-form" class="access-form"><label for="login-id">ID аккаунта Binodex</label><input id="login-id" type="text" inputmode="numeric" autocomplete="username" required /><label for="login-password">Пароль BLUFIN+</label><input id="login-password" type="password" autocomplete="current-password" required /><button class="button primary" type="submit">Войти</button></form><p id="login-message" class="form-message hidden" role="alert"></p><div class="auth-links"><button id="forgot-password" class="text-link" type="button">Забыли пароль?</button><button id="login-first" class="text-link" type="button">Первый вход? Активировать аккаунт</button></div><details class="owner-code-access"><summary>Вход владельца</summary><form id="owner-code-form" class="access-form" autocomplete="off"><label for="owner-code">Код владельца</label><input id="owner-code" class="owner-code-input" type="text" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" required /><button class="button secondary" type="submit">Открыть панель владельца</button></form><p id="owner-code-message" class="form-message hidden" role="alert"></p></details></div></section>
 
       <section id="register" class="access view hidden">
         <div class="step-caption">ШАГ 1 ИЗ 3 <span class="step-line"></span> РЕГИСТРАЦИЯ</div>
@@ -121,4 +121,3 @@
   </div>
 </body>
 </html>
-
