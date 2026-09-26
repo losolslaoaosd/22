@@ -223,6 +223,9 @@ function show(view) {
   $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
   $('#menu-login').classList.toggle('hidden', Boolean(state.token));
   $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
+  $('#header-upgrade')?.classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
+  $('#header-account')?.classList.toggle('hidden', state.status !== 'active' || view === 'account');
+  $('#header-owner')?.classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
   $('#account-widget').classList.toggle('hidden', state.status !== 'active');
   $('#account-chip').classList.add('hidden');
   $('#logout-button').classList.toggle('hidden', !state.token);
@@ -579,7 +582,16 @@ async function init() {
     show('landing');
   }
   $('#begin-button').addEventListener('click', () => show('register'));
-  for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`).addEventListener('click', () => show('login'));
+  $('#landing-id-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    $('#login-id').value = $('#landing-id').value.trim();
+    show('login');
+    $('#login-password').focus();
+  });
+  for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => show('login'));
+  $('#header-upgrade')?.addEventListener('click', openUpgrade);
+  $('#header-account')?.addEventListener('click', () => window.location.assign(sectionUrl('account')));
+  $('#header-owner')?.addEventListener('click', () => window.location.assign(sectionUrl('owner')));
   $('#login-first').addEventListener('click', () => show('register'));
   $('#forgot-password').addEventListener('click', () => $('#forgot-dialog').showModal());
   $('#close-forgot').addEventListener('click', () => $('#forgot-dialog').close());
