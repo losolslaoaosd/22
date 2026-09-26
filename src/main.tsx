@@ -1,50 +1,38 @@
 import { createRoot } from "react-dom/client"
 import { flushSync } from "react-dom"
 import type { ReactNode } from "react"
-import { ArrowRight, ArrowUpRight } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import "./style.css"
 
 function HeaderActions() {
   return <nav className="header-actions" aria-label="Быстрые действия">
-    <Button id="header-upgrade" type="button" variant="outline" size="sm" className="header-upgrade hidden"><ArrowUpRight data-icon="inline-start" aria-hidden="true" />Повысить уровень</Button>
     <Button id="header-account" type="button" variant="ghost" size="sm" className="hidden">Аккаунт</Button>
     <Button asChild variant="outline" size="sm" className="header-contact"><a href="https://t.me/bluefin_m" target="_blank" rel="noopener noreferrer">Связаться со мной <ArrowUpRight data-icon="inline-end" aria-hidden="true" /></a></Button>
     <Button id="header-owner" type="button" variant="ghost" size="sm" className="hidden">Панель владельца</Button>
   </nav>
 }
 
-function LandingLogin() {
+function LandingAccess() {
   return <Card className="hero-login-card">
     <CardHeader>
-      <span className="hero-card-kicker">БЫСТРЫЙ ВХОД</span>
-      <CardTitle>Ваш доступ к BLUFIN+</CardTitle>
-      <CardDescription>Введите ID Binodex, чтобы продолжить вход.</CardDescription>
+      <span className="hero-card-kicker">НАЧНИТЕ С BLUFIN+</span>
+      <CardTitle>Откройте доступ к анализу</CardTitle>
+      <CardDescription>Создайте аккаунт Binodex, подтвердите ID и выберите уровень доступа.</CardDescription>
     </CardHeader>
     <CardContent>
-      <form id="landing-id-form">
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="landing-id">ID аккаунта Binodex</FieldLabel>
-            <Input id="landing-id" type="text" inputMode="numeric" autoComplete="username" placeholder="Введите ваш ID" required />
-          </Field>
-          <Button id="landing-id-submit" type="submit" className="hero-submit">Войти по ID <ArrowRight aria-hidden="true" /></Button>
-        </FieldGroup>
-      </form>
+      <Button id="begin-button" type="button" className="hero-submit">Получить доступ <ArrowUpRight aria-hidden="true" /></Button>
     </CardContent>
     <CardFooter>
-      <span>Первый раз в BLUFIN+?</span>
-      <button id="begin-button" className="hero-register-link" type="button">Получить доступ <ArrowUpRight aria-hidden="true" /></button>
+      <button id="landing-login" className="hero-register-link" type="button">Уже есть аккаунт? Войти</button>
     </CardFooter>
   </Card>
 }
 
 function HeroTrails() {
   return <svg className="hero-trails" viewBox="0 0 1400 650" preserveAspectRatio="none" aria-hidden="true">
-    <defs><linearGradient id="hero-trail-ink" x1="0" y1="1" x2="1" y2="0"><stop stopColor="#1e58b3" stopOpacity=".08" /><stop offset=".55" stopColor="#267ce9" stopOpacity=".65" /><stop offset="1" stopColor="#69c9ff" stopOpacity=".9" /></linearGradient></defs>
+    <defs><linearGradient id="hero-trail-ink" x1="0" y1="1" x2="1" y2="0"><stop stopColor="#1b315b" stopOpacity=".08" /><stop offset=".55" stopColor="#3359a4" stopOpacity=".6" /><stop offset="1" stopColor="#7994c5" stopOpacity=".8" /></linearGradient></defs>
     <path d="M405 602 C600 565 740 520 900 396 S1190 210 1425 80" />
     <path d="M515 645 C720 615 850 550 1010 442 S1250 295 1435 180" />
     <path d="M630 664 C790 630 960 580 1100 500 S1310 390 1450 310" />
@@ -73,7 +61,37 @@ if (heroGrid && actions && visual) {
   heroGrid.prepend(art)
   mount(art, <HeroTrails />)
   actions.replaceChildren()
-  mount(actions, <LandingLogin />)
+  mount(actions, <LandingAccess />)
   visual.replaceChildren()
-  mount(visual, <img className="hero-person" src="./hero-bluefin.png" alt="" />)
+  mount(visual, <>
+    <div className="hero-chart-art" aria-hidden="true">
+      <img className="hero-candles" src="./chart-candles.png" alt="" />
+      <svg className="hero-growth" viewBox="0 0 900 420" preserveAspectRatio="none">
+        <path d="M18 355 C125 347 180 322 258 330 S395 280 465 293 S570 238 645 233 S755 132 880 56" />
+        <path d="M18 380 C150 370 245 350 319 346 S485 310 545 272 S730 205 880 123" />
+      </svg>
+    </div>
+    <div className="hero-balance" aria-label="Демонстрация интерфейса">
+      <span>ПРИМЕР ОТОБРАЖЕНИЯ</span>
+      <strong data-count-to="12480.50">$0.00</strong>
+      <small><b data-count-to="2481.32">+$0.00</b> PROFIT</small>
+    </div>
+    <img className="hero-person" src="./hero-bluefin.png" alt="" />
+  </>)
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
+  const values = visual.querySelectorAll<HTMLElement>("[data-count-to]")
+  const updateNumbers = (progress: number) => values.forEach((node) => {
+    const value = Number(node.dataset.countTo) * progress
+    node.textContent = `${node.tagName === "B" ? "+" : ""}$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  })
+  if (reduceMotion.matches) updateNumbers(1)
+  else {
+    const start = performance.now()
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - start) / 1500)
+      updateNumbers(1 - Math.pow(1 - t, 3))
+      if (t < 1) requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+  }
 }

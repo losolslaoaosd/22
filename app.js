@@ -4,18 +4,33 @@ const views = ['landing', 'login', 'register', 'access', 'password-setup', 'depo
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 const fallbackLevels = [
-  { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#6B7280' },
-  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#2563EB' },
-  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#7C3AED' },
-  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#EF4444' },
-  { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#F5B942' },
+  { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#8994A7' },
+  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#4266A6' },
+  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#788FB8' },
+  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#A8B7CF' },
+  { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#D5B967' },
 ];
 function levels() { return state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels; }
+function renderLevelTrack() {
+  const current = levels().findIndex(level => level.id === state.account?.tier);
+  for (const id of ['dashboard-level-track', 'account-level-track']) {
+    const track = $(`#${id}`); if (!track) continue;
+    track.replaceChildren(...levels().map((level, index) => {
+      const item = document.createElement('div');
+      item.className = `track-step ${index < current ? 'completed' : index === current ? 'current' : 'future'}`;
+      item.setAttribute('aria-current', index === current ? 'step' : 'false');
+      const dot = document.createElement('span'); dot.className = 'track-dot'; dot.textContent = index < current ? '✓' : String(index + 1);
+      const label = document.createElement('strong'); label.textContent = level.id;
+      item.append(dot, label); return item;
+    }));
+    track.setAttribute('aria-label', `Ваш уровень: ${state.account?.tier || 'BASE'}. Прогресс уровней`);
+  }
+}
 function renderLevels() {
   const cards = levels().map(level => {
     const card = document.createElement('article');
     card.className = 'level-card'; card.dataset.tier = level.id;
-    card.style.setProperty('--level-color', fallbackLevels.find(item => item.id === level.id)?.color || '#6B7280');
+    card.style.setProperty('--level-color', fallbackLevels.find(item => item.id === level.id)?.color || '#8994A7');
     const title = document.createElement('h3'); title.textContent = level.id;
     const price = document.createElement('strong'); price.className = 'level-price'; price.textContent = `от ${money(level.minDeposit)}`;
     const signals = document.createElement('strong'); signals.className = 'level-signals';
@@ -66,7 +81,7 @@ function updateTerminalAccount() {
   const a = state.account;
   if (!a || a.status !== 'active') return;
   const rank = state.config?.levels?.findIndex(level => level.id === a.tier) + 1;
-  const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#6B7280';
+  const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#8994A7';
   $('#account-widget').style.setProperty('--tier-color', tint);
   $('#summary-tier').textContent = a.tier || 'BASE';
   $('#summary-credits').textContent = a.creditsTotal === null ? 'AI Credits: безлимит' : `${a.creditsRemaining} AI Credits`;
@@ -74,6 +89,8 @@ function updateTerminalAccount() {
   $('#summary-next').textContent = a.nextLevel && !isOwner() ? `До ${a.nextLevel}: ${money(Math.max(0, a.nextLevelDepositCents - a.depositCents))}` : '';
   $('#status-tier').textContent = a.tier || 'Нет уровня';
   $('#status-rank').textContent = isOwner() ? 'Владелец' : `Уровень ${rank || 1}`;
+  $('#status-modes').textContent = `Режимы: ${(a.modes || []).map(mode => `${mode.toUpperCase()} AI`).join(' · ') || 'FAST AI'}`;
+  renderLevelTrack();
   $('#status-deposits').textContent = isOwner() ? 'Личный доступ' : money(a.depositCents);
   $('#status-credits').textContent = a.creditsTotal === null ? 'Безлимит' : `${a.creditsRemaining} / ${a.creditsTotal}`;
   $('#status-signals').textContent = `${a.signalsUsed || 0} / ${a.signalLimit === null ? '∞' : a.signalLimit}`;
@@ -132,7 +149,7 @@ function updateAccountPage() {
   const a = state.account;
   if (!a || a.status !== 'active') return;
   const level = levels().find(item => item.id === a.tier);
-  const tint = level?.color || '#6B7280';
+  const tint = level?.color || '#8994A7';
   $('#account-level-name').textContent = a.tier || 'Нет уровня';
   $('#account-level-name').style.color = tint;
   $('#account-level-rank').textContent = isOwner() ? 'Владелец' : `Уровень ${levels().findIndex(item => item.id === a.tier) + 1}`;
@@ -177,9 +194,9 @@ function updateModes() {
   }
 }
 const modeDetails = {
-  Fast: { power: 30, intro: 'Быстрый анализ основных параметров на загруженном скриншоте.', points: ['Видимый тренд и структура', 'Текущая цена и таймфрейм', 'Базовая оценка волатильности', 'Краткий вывод по видимым свечам'] },
-  Deep: { power: 70, intro: 'Более подробный разбор того же графика и альтернативного сценария.', points: ['Тренд и несколько аспектов видимой структуры', 'Momentum и volatility по скриншоту', 'Похожие паттерны на видимом участке', 'Дополнительные аргументы за и против сигнала'] },
-  Maximum: { power: 100, intro: 'Максимально подробный разбор доступных данных изображения.', points: ['Расширенная оценка видимой структуры', 'Momentum, volatility и похожие участки графика', 'Проверка противоположного сценария', 'Финальная согласованность видимых признаков'] },
+  Fast: { power: 30, intro: 'Краткий разбор видимых данных скриншота.', points: ['Пара, цена и таймфрейм', 'Тренд и структура', 'Волатильность', 'Краткий вывод по свечам'] },
+  Deep: { power: 70, intro: 'Более подробный разбор видимой структуры и альтернативного сценария.', points: ['Пара, цена и таймфрейм', 'Тренд', 'Рыночная структура', 'Ключевые уровни', 'Momentum', 'Волатильность', 'Аргументы за и против сигнала'] },
+  Maximum: { power: 100, intro: 'Максимально подробный разбор доступных данных изображения.', points: ['Пара, цена и таймфрейм', 'Тренд', 'Рыночная структура', 'Ключевые уровни', 'Momentum', 'Волатильность', 'Похожие паттерны на скриншоте', 'Торговый сценарий', 'Условия отмены сценария', 'Противоположный сценарий', 'Согласованность видимых признаков', 'Ограничения анализа'] },
 };
 function showModeDetails(mode) {
   const details = modeDetails[mode]; if (!details) return;
@@ -190,7 +207,7 @@ function showModeDetails(mode) {
   meter.append(uiNode('span', 'Уровень анализа'), uiNode('strong', `${details.power}%`));
   const track = uiNode('div', '', 'power-track'), fill = uiNode('i'); fill.style.width = `${details.power}%`; track.append(fill); meter.append(track); box.append(meter);
   const list = uiNode('ul'); details.points.forEach(point => list.append(uiNode('li', point))); box.append(list);
-  box.append(uiNode('p', 'Уровень анализа показывает глубину ответа. Все режимы используют только данные загруженного скриншота.'));
+  box.append(uiNode('p', 'Это аспекты одного анализа, а не отдельные модели. Глубина ответа зависит от режима. Используются только данные скриншота.'));
   $('#mode-dialog').showModal();
 }
 
@@ -225,7 +242,7 @@ function show(view) {
   $('#site-menu-toggle').setAttribute('aria-expanded', 'false');
   if (view === 'owner-stats-view' && isOwner()) { refreshOwnerStats(); refreshOwnerUsers(false); }
   if (view === 'dashboard') { updateTerminalAccount(); restoreLatest(); }
-  if (view === 'account') updateAccountPage();
+  if (view === 'account') { updateAccountPage(); renderLevelTrack(); }
   if (view === 'password-setup') $('#setup-account-id').textContent = state.accountId || '';
   if (view === 'deposit') updateActivation();
 }
@@ -277,7 +294,7 @@ function dateLabel(timestamp) {
 }
 function tierBadge(tier) {
   const badge = uiNode('span', tier || 'Без доступа', 'tier-badge');
-  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#6B7280');
+  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#8994A7');
   return badge;
 }
 async function refreshOwnerUsers(more = false) {
@@ -417,7 +434,9 @@ function clearAuth() {
   state.token = null; state.status = 'guest'; state.role = null; state.accountId = null; state.account = null;
   sessionStorage.removeItem('blufin_session');
   state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
-  state.resultTimer = null; showTerminal('empty'); routeFromStatus();
+  state.resultTimer = null; showTerminal('empty');
+  if (section) window.location.replace(siteRoot.href);
+  else routeFromStatus();
 }
 async function refreshSession(navigate = true) {
   if (!state.token && apiBase) {
@@ -612,12 +631,6 @@ async function init() {
     show('landing');
   }
   $('#begin-button').addEventListener('click', () => show('register'));
-  $('#landing-id-form')?.addEventListener('submit', event => {
-    event.preventDefault();
-    $('#login-id').value = $('#landing-id').value.trim();
-    show('login');
-    $('#login-password').focus();
-  });
   for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => show('login'));
   $('#header-upgrade')?.addEventListener('click', openUpgrade);
   $('#header-account')?.addEventListener('click', () => window.location.assign(sectionUrl('account')));
@@ -715,6 +728,7 @@ async function init() {
   $('#logout-button').addEventListener('click', async () => {
     try { await api('/api/auth/logout', { method: 'POST' }); } finally { clearAuth(); }
   });
+  $('#account-logout').addEventListener('click', () => $('#logout-button').click());
   $('#logout-all').addEventListener('click', async () => {
     const button = $('#logout-all'); button.disabled = true;
     try { await api('/api/auth/logout-all', { method: 'POST' }); clearAuth(); }
