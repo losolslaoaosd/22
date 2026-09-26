@@ -124,13 +124,13 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 .level-track .track-step.current .track-dot { background: var(--track-color); border-color: var(--track-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--track-color) 20%, transparent); }
 
 .hero-chart-art {
-  inset: 0 -25% -7% -26%; mix-blend-mode: screen;
+  inset: 0 -25% -7% -26%;
   -webkit-mask-image: radial-gradient(ellipse 70% 58% at 50% 55%, #000 25%, #000b 55%, transparent 95%);
   mask-image: radial-gradient(ellipse 70% 58% at 50% 55%, #000 25%, #000b 55%, transparent 95%);
 }
 .hero-candles {
-  left: -8%; width: 116%; height: 92%; opacity: .53;
-  filter: brightness(.78) saturate(.75) contrast(1.12);
+  left: -8%; width: 116%; height: 92%; opacity: .66;
+  filter: brightness(.92) saturate(.8) contrast(1.12);
   mix-blend-mode: screen;
 }
 
