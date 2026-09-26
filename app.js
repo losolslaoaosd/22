@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 14553)
-Total output lines: 844
+Warning: truncated output (original token count: 14570)
+Total output lines: 845
 
 const $ = selector => document.querySelector(selector);
 const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: sessionStorage.getItem('blufin_session') };
@@ -206,7 +206,7 @@ function disableRegistration() {
 }
 
 function moscow(date = new Date(), withSeconds = false) {
-  return new Intl…6553 tokens truncated…$('#close-forgot').addEventListener('click', () => $('#forgot-dialog').close());
+  return new Intl…6570 tokens truncated…').close());
   $('#login-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = $('#login-form button[type=submit]'); button.disabled = true;
@@ -435,5 +435,6 @@ function moscow(date = new Date(), withSeconds = false) {
     } finally { button.disabled = false; button.innerHTML = 'НАЧАТЬ АНАЛИЗ <span aria-hidden="true">↗</span>'; }
   });
 }
+if (section && !state.token) $('#login').classList.remove('hidden');
 init();
 
