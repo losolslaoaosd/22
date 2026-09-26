@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 14570)
-Total output lines: 845
-
 const $ = selector => document.querySelector(selector);
 const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: sessionStorage.getItem('blufin_session') };
 const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'account', 'owner-stats-view'];
@@ -206,7 +203,415 @@ function disableRegistration() {
 }
 
 function moscow(date = new Date(), withSeconds = false) {
-  return new Intl…6570 tokens truncated…').close());
+  return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', ...(withSeconds ? { second: '2-digit' } : {}) }).format(date);
+}
+function show(view) {
+  for (const name of views) $(`#${name}`).classList.toggle('hidden', name !== view);
+  $('#onboarding-progress').classList.toggle('hidden', !['register', 'access', 'password-setup', 'deposit'].includes(view));
+  const stages = ['register', 'access', 'deposit'];
+  for (const element of $('#onboarding-progress').querySelectorAll('[data-step]')) {
+    element.classList.toggle('active', element.dataset.step === view || (view === 'password-setup' && element.dataset.step === 'access'));
+    element.classList.toggle('completed', stages.indexOf(element.dataset.step) < stages.indexOf(view));
+    if (element.dataset.step === view) element.setAttribute('aria-current', 'step');
+    else element.removeAttribute('aria-current');
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (state.polling) { clearInterval(state.polling); state.polling = null; }
+  if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
+  $('#owner-stats-link').classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
+  $('#menu-terminal').classList.toggle('hidden', state.status !== 'active' || view === 'dashboard');
+  $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
+  $('#menu-login').classList.toggle('hidden', Boolean(state.token));
+  $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
+  $('#header-upgrade')?.classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
+  $('#header-account')?.classList.toggle('hidden', state.status !== 'active' || view === 'account');
+  $('#header-owner')?.classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
+  $('#account-widget').classList.toggle('hidden', state.status !== 'active');
+  $('#account-chip').classList.add('hidden');
+  $('#logout-button').classList.toggle('hidden', !state.token);
+  $('#site-menu').classList.add('hidden');
+  $('#site-menu-toggle').setAttribute('aria-expanded', 'false');
+  if (view === 'owner-stats-view' && isOwner()) { refreshOwnerStats(); refreshOwnerUsers(false); }
+  if (view === 'dashboard') { updateTerminalAccount(); restoreLatest(); }
+  if (view === 'account') updateAccountPage();
+  if (view === 'password-setup') $('#setup-account-id').textContent = state.accountId || '';
+  if (view === 'deposit') updateActivation();
+}
+function routeFromStatus() {
+  if (state.status !== 'guest' && state.role !== 'admin' && state.account?.passwordConfigured === false)
+    return show('password-setup');
+  if (state.account?.mustChangePassword) {
+    if (section && section !== 'account') return window.location.replace(sectionUrl('account'));
+    return show('account');
+  }
+  if (state.status === 'active') {
+    if (section === 'owner' && !isOwner()) return window.location.replace(sectionUrl('app'));
+    if (!section) return window.location.replace(sectionUrl('app'));
+    return show(section === 'owner' ? 'owner-stats-view' : section === 'account' ? 'account' : 'dashboard');
+  }
+  if (state.status === 'deposit') return section ? window.location.replace(siteRoot.href) : show('deposit');
+  show(section ? 'login' : 'landing');
+}
+async function api(url, options = {}) {
+  if (staticPreview) throw new Error('Доступ откроется после подключения Cloudflare Workers. Сейчас доступен только просмотр сайта.');
+  const response = await fetch(`${apiBase}${url}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
+  const data = await response.json().catch(() => { throw new Error('Сервер проверки сейчас недоступен.'); });
+  if (!response.ok) throw Object.assign(new Error(data.message || 'Не удалось выполнить запрос'), { code: data.code, status: response.status });
+  return data;
+}
+async function refreshOwnerStats() {
+  try {
+    const stats = await api('/api/admin/stats');
+    for (const field of ['accounts', 'active', 'registrations', 'deposits', 'analyses']) {
+      $(`#owner-${field}`).textContent = new Intl.NumberFormat('ru-RU').format(stats[field]);
+    }
+    $('#owner-stats-message').textContent = `Обновлено: ${moscow(new Date(), true)} МСК`;
+  } catch { $('#owner-stats-message').textContent = 'Статистика сейчас недоступна. Попробуйте обновить.'; }
+}
+function uiNode(tag, value = '', className = '') {
+  const element = document.createElement(tag);
+  element.textContent = value;
+  if (className) element.className = className;
+  return element;
+}
+function dateLabel(timestamp) {
+  if (!timestamp) return 'Нет данных';
+  const date = new Date(timestamp);
+  const today = new Date(Date.now() - state.clockOffset);
+  if (date.toDateString() === today.toDateString()) return `сегодня ${moscow(date)}`;
+  const yesterday = new Date(today.getTime() - 86_400_000);
+  if (date.toDateString() === yesterday.toDateString()) return `вчера ${moscow(date)}`;
+  return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+function tierBadge(tier) {
+  const badge = uiNode('span', tier || 'Без доступа', 'tier-badge');
+  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#6B7280');
+  return badge;
+}
+async function refreshOwnerUsers(more = false) {
+  if (!isOwner()) return;
+  const page = more ? state.ownerPage + 1 : 0;
+  const search = $('#owner-search').value.trim();
+  if (search && !/^\d{1,16}$/.test(search)) { $('#owner-users-message').textContent = 'Введите только цифры ID.'; return; }
+  $('#owner-users-message').textContent = 'Загружаем пользователей…';
+  try {
+    const data = await api(`/api/admin/users?q=${encodeURIComponent(search)}&filter=${state.ownerFilter}&page=${page}`);
+    state.ownerPage = page;
+    if (!more) $('#owner-users-body').replaceChildren();
+    for (const user of data.users) {
+      const row = document.createElement('tr'); row.tabIndex = 0; row.dataset.accountId = user.accountId;
+      const values = [user.accountId, null, money(user.depositCents),
+        user.creditsTotal === null ? 'Безлимит' : `${user.creditsRemaining} / ${user.creditsTotal}`,
+        `${user.signalsUsed} / ${user.signalLimit === null ? '∞' : user.signalLimit}`,
+        ['Fast', 'Deep', 'Maximum'].map(mode => `${user.aiUsage?.[mode]?.cycle || 0} ${mode}`).join(' · '),
+        dateLabel(user.lastActiveAt), user.status === 'active' ? 'Активен' : 'Без доступа'];
+      const labels = ['ID', 'Уровень', 'Депозиты', 'AI Credits', 'Сигналы', 'AI Usage', 'Последняя активность', 'Статус'];
+      values.forEach((value, index) => {
+        const cell = document.createElement('td'); cell.dataset.label = labels[index];
+        cell.append(index === 1 ? tierBadge(user.tier) : document.createTextNode(value)); row.append(cell);
+      });
+      $('#owner-users-body').append(row);
+    }
+    $('#owner-more').classList.toggle('hidden', !data.hasMore);
+    $('#owner-users-message').textContent = data.users.length ? '' : more ? 'Больше пользователей нет.' : 'Пользователи не найдены.';
+  } catch (error) { $('#owner-users-message').textContent = `Не удалось загрузить пользователей: ${error.message}`; }
+}
+function ownerDetailRow(label, value) {
+  const item = uiNode('div'); item.append(uiNode('span', label), uiNode('strong', value)); return item;
+}
+function renderOwnerUser(data, appendSignals = false) {
+  const user = data.user;
+  state.ownerUserId = user.accountId;
+  $('#owner-user-title').textContent = `Пользователь ID ${user.accountId}`;
+  const box = $('#owner-user-content');
+  if (!appendSignals) {
+    box.replaceChildren();
+    const fields = uiNode('div', '', 'owner-detail-grid');
+    [
+      ['Статус', user.status === 'active' ? 'Активен' : 'Без доступа'],
+      ['Текущий уровень', user.tier || 'Не открыт'],
+      ['Регистрация', dateLabel(user.registeredAt)], ['Проверка аккаунта', dateLabel(user.verifiedAt)],
+      ['Общая сумма депозитов', money(user.depositCents)],
+      ['AI Credits', user.creditsTotal === null ? 'Безлимит' : `${user.creditsRemaining} / ${user.creditsTotal}`],
+      ['Credits использовано', `${user.creditsSpent || 0}`],
+      ['Сигналы', `${user.signalsUsed} / ${user.signalLimit === null ? '∞' : user.signalLimit}`],
+      ['Начало цикла', dateLabel(user.cycleStartedAt)], ['Обновление лимитов', dateLabel(user.cycleResetAt)],
+      ['Последняя активность', dateLabel(user.lastActiveAt)],
+      ['Следующий уровень', user.nextLevel || 'Максимальный уровень открыт'],
+    ].forEach(([label, value]) => fields.append(ownerDetailRow(label, value)));
+    box.append(fields);
+    if (user.nextLevel) {
+      box.append(uiNode('p', `До ${user.nextLevel} осталось ${money(Math.max(0, user.nextLevelDepositCents - user.depositCents))}. ${money(user.depositCents)} / ${money(user.nextLevelDepositCents)}`));
+      const progress = document.createElement('progress'); progress.max = user.nextLevelDepositCents; progress.value = user.depositCents; box.append(progress);
+    }
+    const refresh = uiNode('button', 'Пересчитать по подтверждённым депозитам', 'button secondary');
+    refresh.id = 'owner-user-refresh'; refresh.type = 'button'; box.append(refresh);
+    if (user.passwordConfigured) {
+      const reset = uiNode('form', '', 'owner-password-reset'); reset.id = 'owner-password-reset';
+      reset.append(uiNode('h3', 'Сменить пароль пользователя'));
+      const label = uiNode('label', 'Временный пароль BLUFIN+'); label.htmlFor = 'owner-temporary-password';
+      const input = document.createElement('input'); input.id = 'owner-temporary-password'; input.type = 'password'; input.minLength = 10; input.required = true; input.autocomplete = 'new-password';
+      const submit = uiNode('button', 'Установить временный пароль', 'button secondary'); submit.type = 'submit';
+      const note = uiNode('p', 'После входа пользователь должен сменить этот пароль.', 'fine-print'); note.id = 'owner-reset-message';
+      reset.append(label, input, submit, note); box.append(reset);
+    }
+    box.append(uiNode('h3', 'Подтверждённые депозиты'));
+    const deposits = uiNode('ul', '', 'owner-detail-list');
+    for (const item of data.deposits) { const li = uiNode('li'); li.append(uiNode('span', dateLabel(item.confirmedAt)), uiNode('span', `${money(item.amountCents)} · Confirmed`)); deposits.append(li); }
+    if (!data.deposits.length) deposits.append(uiNode('li', 'Депозитов пока нет'));
+    box.append(deposits);
+    box.append(uiNode('h3', 'Использование AI · период / всё время'));
+    const usage = uiNode('ul', '', 'owner-detail-list');
+    for (const mode of ['Fast', 'Deep', 'Maximum']) { const li = uiNode('li'); li.append(uiNode('span', mode), uiNode('span', `${data.aiUsage?.[mode]?.cycle || 0} / ${data.aiUsage?.[mode]?.lifetime || 0}`)); usage.append(li); }
+    box.append(usage, uiNode('h3', 'Последние сигналы'));
+    box.append(uiNode('ul', '', 'owner-detail-list')); box.lastElementChild.id = 'owner-signals-list';
+  }
+  const list = $('#owner-signals-list');
+  if (!appendSignals && !data.signals.length) list.append(uiNode('li', 'Сигналов пока нет'));
+  for (const signal of data.signals) {
+    const li = uiNode('li');
+    const direction = { UP: 'ВВЕРХ', DOWN: 'ВНИЗ', NO_TRADE: 'ПРОПУСК' }[signal.verdict] || signal.verdict;
+    li.append(uiNode('span', `${signal.pair} · ${(signal.mode || 'Fast').toUpperCase()} · ${direction}`),
+      uiNode('span', `${dateLabel(signal.createdAt)} · ${signal.expiresAt && signal.expiresAt > Date.now() - state.clockOffset ? 'Активен' : 'Завершён'}`));
+    list.append(li);
+  }
+  $('#owner-more-signals')?.remove();
+  if (data.hasMoreSignals) { const more = uiNode('button', 'Показать больше', 'button secondary'); more.id = 'owner-more-signals'; more.dataset.page = String(data.signalPage + 1); box.append(more); }
+}
+async function openOwnerUser(accountId) {
+  if (!isOwner()) return;
+  $('#owner-user-content').textContent = 'Загружаем данные…';
+  $('#owner-user-dialog').showModal();
+  try { renderOwnerUser(await api(`/api/admin/users/${encodeURIComponent(accountId)}`)); }
+  catch (error) { $('#owner-user-content').textContent = error.message; }
+}
+async function enterOwnerCode(code) {
+  const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code }) });
+  state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
+  state.account = { status: 'active', role: 'admin', tier: 'ULTRA', modes: ['Fast', 'Deep', 'Maximum'] }; state.latestResult = null;
+  sessionStorage.setItem('blufin_session', result.token);
+  $('#account-id').value = '';
+  await refreshSession(false);
+  routeFromStatus();
+}
+// Keep the owner sign-in usable even while the public configuration request is pending.
+$('#owner-code-form')?.addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const messageBox = $('#owner-code-message');
+  button.disabled = true;
+  messageBox.classList.add('hidden');
+  try {
+    await enterOwnerCode($('#owner-code').value.trim());
+    form.reset();
+  } catch (error) {
+    message(messageBox, error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+function acceptAuth(result) {
+  state.token = result.token;
+  sessionStorage.setItem('blufin_session', result.token);
+  state.status = result.status;
+  state.role = result.role || 'user';
+  state.accountId = result.accountId || null;
+  state.account = result;
+  state.latestResult = null;
+  routeFromStatus();
+}
+function clearAuth() {
+  state.token = null; state.status = 'guest'; state.role = null; state.accountId = null; state.account = null;
+  sessionStorage.removeItem('blufin_session');
+  state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
+  state.resultTimer = null; showTerminal('empty'); routeFromStatus();
+}
+async function refreshSession(navigate = true) {
+  if (!state.token && apiBase) {
+    state.status = 'guest'; state.accountId = null; state.role = null; state.account = null;
+    if (navigate) routeFromStatus();
+    return { status: 'guest' };
+  }
+  try {
+    const account = await api('/api/me');
+    if (account.status === 'guest') { state.token = null; sessionStorage.removeItem('blufin_session'); }
+    const changed = account.status !== state.status;
+    state.status = account.status;
+    state.accountId = account.accountId || null;
+    state.role = account.role || null; state.account = account;
+    if (account.serverTime) state.clockOffset = Date.now() - account.serverTime;
+    if (account.status === 'active') updateTerminalAccount();
+    if (navigate && changed) routeFromStatus();
+    if (!navigate && changed && account.status === 'active') routeFromStatus();
+    if (account.status === 'deposit') updateActivation();
+    return account;
+  } catch {
+    if (!navigate) $('#deposit-message').textContent = 'Не удалось проверить статус. Повторите попытку чуть позже.';
+  }
+}
+function message(node, text, isError = true) {
+  node.classList.remove('hidden');
+  node.style.color = isError ? '' : '#a6eeda';
+  node.style.background = isError ? '' : '#163a3c';
+  node.style.borderColor = isError ? '' : '#2f746b';
+  node.textContent = text;
+}
+function setFile(file) {
+  if (!file) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return message($('#analysis-error'), 'Нужен скриншот в формате JPG, PNG или WebP.');
+  if (file.size > 5_000_000) return message($('#analysis-error'), 'Файл должен быть меньше 5 МБ.');
+  if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+  state.file = file;
+  state.previewUrl = URL.createObjectURL(file);
+  $('#preview-img').src = state.previewUrl;
+  $('#preview-name').textContent = file.name;
+  $('#image-preview').classList.remove('hidden');
+  $('#empty-upload').classList.add('hidden');
+  $('#analysis-error').classList.add('hidden');
+}
+async function imageDataUrl(file) {
+  const image = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 2200 / Math.max(image.width, image.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } finally { image.close(); }
+}
+function showTerminal(section) {
+  for (const [name, id] of Object.entries({ empty: 'terminal-empty', processing: 'terminal-processing', result: 'terminal-result' }))
+    $(`#${id}`).classList.toggle('hidden', name !== section);
+}
+function beginProcessing(mode) {
+  const steps = {
+    Fast: ['График получен', 'Распознавание пары, цены и таймфрейма', 'Тренд и базовая структура', 'Формирование сигнала'],
+    Deep: ['График получен', 'Распознавание рынка', 'Структура и тренд', 'Momentum и volatility', 'Паттерны на видимом графике', 'Финальная проверка и сигнал'],
+    Maximum: ['График получен', 'Распознавание рынка', 'Расширенная структура', 'Momentum и volatility', 'Сходство видимых паттернов', 'Проверка противоположного сценария', 'Согласованность признаков и сигнал'],
+  }[mode];
+  $('#processing-mode').textContent = `${mode.toUpperCase()} AI ACTIVE`;
+  $('#processing-power').textContent = `${modeDetails[mode].power}%`;
+  $('#processing-power-fill').style.width = `${modeDetails[mode].power}%`;
+  $('#processing-steps').replaceChildren();
+  steps.forEach((label, index) => {
+    const item = document.createElement('li');
+    item.textContent = label;
+    if (index === 0) item.classList.add('current');
+    $('#processing-steps').append(item);
+  });
+  showTerminal('processing');
+}
+function imagePrepared() {
+  const items = $('#processing-steps').children;
+  items[0]?.classList.replace('current', 'done');
+  items[1]?.classList.add('current');
+}
+function renderResult(data, scroll = false) {
+  if (data.serverTime) state.clockOffset = Date.now() - data.serverTime;
+  state.latestResult = { ...data, serverTime: undefined };
+  state.dismissedResultId = null;
+  const r = data.result;
+  const actionable = ['UP', 'DOWN'].includes(r.verdict) && Boolean(data.signalExpiresAt);
+  const panel = $('#terminal-result');
+  panel.classList.toggle('no-trade', !actionable);
+  panel.classList.remove('expired');
+  const direction = $('#signal-hero');
+  direction.classList.toggle('direction-up', r.verdict === 'UP');
+  direction.classList.toggle('direction-down', r.verdict === 'DOWN');
+  direction.classList.toggle('direction-neutral', r.verdict === 'NO_TRADE');
+  $('#signal-actions').classList.add('hidden');
+  $('#signal-analysis').classList.remove('hidden');
+  $('#signal-timer').classList.toggle('hidden', !actionable);
+  $('#signal-status').textContent = actionable ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ НЕ СФОРМИРОВАН';
+  $('#signal-stamp').textContent = `${moscow(new Date(data.created_at), true)} МСК`;
+  for (const [id, value] of Object.entries({
+    pair: r.pair || data.asset, timeframe: r.timeframe || 'Не определён',
+    price: r.current_price || 'Не определена',
+    direction: { UP: 'ВВЕРХ', DOWN: 'ВНИЗ', NO_TRADE: 'ПРОПУСТИТЬ' }[r.verdict],
+    duration: actionable ? `${data.signalDuration / 60} мин` : 'Нет сигнала',
+    mode: (data.mode || 'Fast').toUpperCase(),
+  })) $(`#signal-${id}`).textContent = value;
+  for (const field of ['trend', 'structure', 'momentum', 'volatility', 'historical_match', 'ai_consensus', 'key_levels', 'invalidation', 'limitations', 'final_conclusion'])
+    $(`#report-${field}`).textContent = r[field] || (field === 'final_conclusion' ? r.reason : 'Не определено');
+  showTerminal('result');
+  if (state.resultTimer) clearInterval(state.resultTimer);
+  state.resultTimer = null;
+  if (actionable) {
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((data.signalExpiresAt - (Date.now() - state.clockOffset)) / 1000));
+      const total = data.signalDuration || 1;
+      $('#timer-text').textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+      $('#signal-timer').style.setProperty('--progress', `${Math.min(100, seconds / total * 100)}%`);
+      $('#timer-label').textContent = seconds ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ ЗАВЕРШЁН';
+      $('#signal-status').textContent = seconds ? 'СИГНАЛ АКТИВЕН' : 'СИГНАЛ ЗАВЕРШЁН';
+      panel.classList.toggle('expired', !seconds);
+      if (!seconds && $('#signal-actions').classList.contains('hidden')) {
+        $('#signal-actions').classList.remove('hidden');
+        $('#signal-analysis').classList.add('hidden');
+        $('#toggle-analysis').textContent = 'Открыть разбор';
+      }
+      if (!seconds && state.resultTimer) { clearInterval(state.resultTimer); state.resultTimer = null; }
+    };
+    update();
+    if (data.signalExpiresAt > Date.now() - state.clockOffset) state.resultTimer = setInterval(update, 1000);
+  } else {
+    $('#signal-actions').classList.remove('hidden');
+    $('#signal-analysis').classList.add('hidden');
+    $('#toggle-analysis').textContent = 'Открыть разбор';
+  }
+  if (scroll) $('#signal-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function restoreLatest() {
+  if (state.latestResult) return renderResult(state.latestResult);
+  try {
+    const history = await api('/api/history');
+    if (!$('#dashboard').classList.contains('hidden') && history.analyses?.[0] && history.analyses[0].id !== state.dismissedResultId && $('#terminal-processing').classList.contains('hidden'))
+      renderResult({ ...history.analyses[0], serverTime: history.serverTime });
+  } catch { /* A missing history must not block a new analysis. */ }
+}
+async function init() {
+  renderLevels();
+  if (staticPreview) {
+    $('#preview-banner').classList.remove('hidden');
+    disableRegistration();
+    $('#register-message').textContent = 'Регистрация откроется после подключения Cloudflare Workers.';
+  }
+  try {
+    state.config = await api('/api/config');
+    renderLevels();
+    if (!state.config.attributionConfigured) {
+      message($('#id-message'), 'Проверка аккаунтов ещё настраивается. Регистрация через BLUFIN+ откроется после подключения postback.');
+      $('#register-message').textContent = 'Регистрация временно недоступна. Повторите попытку позже.';
+      disableRegistration();
+    } else {
+      for (const link of document.querySelectorAll('[data-registration-link]')) link.href = `${apiBase}/go`;
+      const depositLink = document.querySelector('#deposit a.button');
+      depositLink.href = `${apiBase}/go`;
+    }
+    await refreshSession(false);
+    routeFromStatus();
+  } catch {
+    disableRegistration();
+    $('#register-message').textContent = 'Сервер проверки сейчас недоступен. Регистрация временно отключена.';
+    message($('#id-message'), 'Сервер проверки сейчас недоступен. Проверка ID временно отключена.', false);
+    show('landing');
+  }
+  $('#begin-button').addEventListener('click', () => show('register'));
+  $('#landing-id-form')?.addEventListener('submit', event => {
+    event.preventDefault();
+    $('#login-id').value = $('#landing-id').value.trim();
+    show('login');
+    $('#login-password').focus();
+  });
+  for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => show('login'));
+  $('#header-upgrade')?.addEventListener('click', openUpgrade);
+  $('#header-account')?.addEventListener('click', () => window.location.assign(sectionUrl('account')));
+  $('#header-owner')?.addEventListener('click', () => window.location.assign(sectionUrl('owner')));
+  $('#login-first').addEventListener('click', () => show('register'));
+  $('#forgot-password').addEventListener('click', () => $('#forgot-dialog').showModal());
+  $('#close-forgot').addEventListener('click', () => $('#forgot-dialog').close());
   $('#login-form').addEventListener('submit', async event => {
     event.preventDefault();
     const button = $('#login-form button[type=submit]'); button.disabled = true;
