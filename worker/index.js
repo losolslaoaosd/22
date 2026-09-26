@@ -259,12 +259,31 @@ async function setupPassword(request, env) {
   if (!validPassword(password)) throw httpError(400, 'WEAK_PASSWORD', 'Пароль должен содержать от 10 до 128 символов');
   const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
   const hash = await passwordHash(password, salt);
-  const changed = await env.DB.prepare('UPDATE accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, session_version = session_version + 1 WHERE account_id = ? AND password_hash IS NULL')
-    .bind(hash, salt, PASSWORD_ITERATIONS, account.account_id).run();
-  if (!changed.meta.changes) throw httpError(409, 'ACCOUNT_EXISTS', 'Пароль уже создан. Войдите в аккаунт.');
-  await env.DB.prepare('DELETE FROM sessions WHERE account_id = ?').bind(account.account_id).run();
-  const updated = await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(account.account_id).first();
-  return { ...await accountStatus(env, updated), token: await issueSession(env, updated) };
+  const token = hex(crypto.getRandomValues(new Uint8Array(32)));
+  const tokenHash = await sha256(token);
+  const now = Date.now();
+  // A failed session write must not leave a password set with no usable session.
+  let changed, created;
+  try { [changed, created] = await env.DB.batch([
+    env.DB.prepare('UPDATE accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, session_version = session_version + 1 WHERE account_id = ? AND password_hash IS NULL')
+      .bind(hash, salt, PASSWORD_ITERATIONS, account.account_id),
+    env.DB.prepare(`INSERT INTO sessions (token_hash, account_id, expires_at, auth_version, created_at)
+      SELECT ?, account_id, ?, session_version, ? FROM accounts
+      WHERE account_id = ? AND password_hash = ? AND password_salt = ?`)
+      .bind(tokenHash, now + 7 * DAY, now, account.account_id, hash, salt),
+    env.DB.prepare(`DELETE FROM sessions WHERE account_id = ? AND token_hash != ?
+      AND EXISTS (SELECT 1 FROM sessions WHERE account_id = ? AND token_hash = ?)`)
+      .bind(account.account_id, tokenHash, account.account_id, tokenHash),
+  ]); } catch (cause) {
+    console.error('Password setup transaction failed', { name: cause?.name, message: cause?.message });
+    throw httpError(503, 'PASSWORD_SETUP_FAILED', 'Не удалось сохранить пароль. Повторите попытку или войдите, если пароль уже создан.');
+  }
+  if (!changed.meta.changes || !created.meta.changes)
+    throw httpError(409, 'ACCOUNT_EXISTS', 'Пароль уже создан. Войдите в аккаунт.');
+  return { ...await accountStatus(env, {
+    ...account, password_hash: hash, password_salt: salt, password_iterations: PASSWORD_ITERATIONS,
+    session_version: (account.session_version || 0) + 1,
+  }), token };
 }
 async function changePassword(request, env) {
   const account = await currentAccount(request, env);
@@ -664,7 +683,7 @@ async function handler(request, env) {
   }
 }
 
-export { analyzeImage, analyze };
+export { analyzeImage, analyze, setupPassword };
 export default {
   fetch: handler,
   async scheduled(_event, env) {
