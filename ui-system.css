@@ -124,9 +124,9 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 .level-track .track-step.current .track-dot { background: var(--track-color); border-color: var(--track-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--track-color) 20%, transparent); }
 
 .hero-chart-art {
-  inset: 3% -25% -7% -26%;
-  -webkit-mask-image: radial-gradient(ellipse 74% 68% at 50% 55%, #000 42%, #000b 66%, transparent 100%);
-  mask-image: radial-gradient(ellipse 74% 68% at 50% 55%, #000 42%, #000b 66%, transparent 100%);
+  inset: 0 -25% -7% -26%; mix-blend-mode: screen;
+  -webkit-mask-image: radial-gradient(ellipse 70% 58% at 50% 55%, #000 25%, #000b 55%, transparent 95%);
+  mask-image: radial-gradient(ellipse 70% 58% at 50% 55%, #000 25%, #000b 55%, transparent 95%);
 }
 .hero-candles {
   left: -8%; width: 116%; height: 92%; opacity: .53;
@@ -135,8 +135,10 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 }
 
 #register .access-grid { align-items: stretch; }
-#register .access-aside { align-self: stretch; display: flex; flex-direction: column; justify-content: space-between; }
+#register .access-aside { align-self: start; display: flex; flex-direction: column; height: 296px; min-height: 0; margin-top: 82px; }
 #register .access-aside .aside-lines { margin: 18px 0 0; }
+#register .aside-lines > div { min-height: 69px; }
+#register .aside-lines > div:not(:last-child)::after { height: 39px; }
 .register-next {
   width: min(100%, 350px); height: 33px; display: grid; place-items: center;
   color: #91a8d1; font-size: 22px; line-height: 1; animation: next-arrow 3.5s ease-in-out infinite;
@@ -209,7 +211,7 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
 @media (max-width: 760px) {
   .hero-chart-art { inset: 0 -14% -5%; }
   .hero-candles { height: 90%; }
-  #register .access-aside { min-height: 0; }
+  #register .access-aside { height: auto; min-height: 0; margin-top: 0; }
   #access .id-input-wrap, #access .access-form .button, #access .access-primary > .button { width: 100%; }
   #expiry-options { max-width: none; }
   .hero-amount { min-width: 68px; padding: 6px 8px; font-size: 12px; }
