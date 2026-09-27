@@ -1,12 +1,13 @@
 import { createRoot } from "react-dom/client"
 import { flushSync } from "react-dom"
-import type { ReactNode } from "react"
-import { ArrowUpRight } from "lucide-react"
+import { useEffect, useState, type ReactNode } from "react"
+import { ArrowUpRight, ChartNoAxesCombined, History, Gem, CircleUserRound, Settings, ShieldCheck } from "lucide-react"
+import LatticeLoader from "@/components/LatticeLoader"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter } from "@/components/ui/card"
 import "./style.css"
 
-const assetRoot = new URL(window.location.pathname.replace(/(?:app|owner|account)\/(?:index\.html)?$|index\.html$/, ""), window.location.origin)
+const assetRoot = new URL("/", window.location.origin)
 
 function HeaderActions() {
   return <nav className="header-actions" aria-label="Быстрые действия">
@@ -42,6 +43,38 @@ function HeroTrails() {
 function mount(element: Element, component: ReactNode) {
   flushSync(() => createRoot(element).render(component))
 }
+
+function AnalysisLoader() {
+  const [status, setStatus] = useState<"working" | "done" | "error">("working")
+  useEffect(() => {
+    const update = (event: Event) => {
+      const next = (event as CustomEvent<string>).detail
+      if (next === "processing") setStatus("working")
+      if (next === "done" || next === "error") setStatus(next)
+    }
+    window.addEventListener("blufin:analysis-state", update)
+    return () => window.removeEventListener("blufin:analysis-state", update)
+  }, [])
+  return <LatticeLoader status={status} />
+}
+
+const loader = document.querySelector("#lattice-loader")
+if (loader) mount(loader, <AnalysisLoader />)
+
+const navIcons = { dashboard: ChartNoAxesCombined, history: History, level: Gem, account: CircleUserRound, settings: Settings, "owner-stats-view": ShieldCheck }
+document.querySelectorAll<HTMLButtonElement>("[data-route]").forEach((button) => {
+  const route = button.dataset.route as keyof typeof navIcons
+  const Icon = navIcons[route]
+  if (!Icon || !button.closest(".app-sidebar, .mobile-tabs")) return
+  const existing = button.querySelector("span[aria-hidden]")
+  if (existing) existing.remove()
+  else if (button.firstChild?.nodeType === Node.TEXT_NODE) button.firstChild.remove()
+  const host = document.createElement("span")
+  host.className = "nav-icon"
+  host.setAttribute("aria-hidden", "true")
+  button.prepend(host)
+  mount(host, <Icon size={20} strokeWidth={1.8} />)
+})
 
 const header = document.querySelector(".site-menu-wrap")
 if (header?.parentElement) {

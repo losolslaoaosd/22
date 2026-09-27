@@ -35,6 +35,7 @@ function allowedOrigin(origin, env) {
 function cors(origin, env) {
   return allowedOrigin(origin, env) ? {
     'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Max-Age': '600',
@@ -55,6 +56,20 @@ function secretEqual(a, b) {
   return mismatch === 0;
 }
 function bearer(request) { return request.headers.get('Authorization')?.match(/^Bearer\s+(.+)$/i)?.[1] || ''; }
+function sessionToken(request) {
+  const cookie = request.headers.get('Cookie')?.split(';').map(part => part.trim()).find(part => part.startsWith('blufin_session='));
+  return bearer(request) || cookie?.slice('blufin_session='.length) || '';
+}
+function sessionCookie(token, maxAge) {
+  return `blufin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+}
+function authResponse(result, maxAge, headers = {}) {
+  const { token, remember, ...publicResult } = result;
+  return json(publicResult, 200, { ...headers, 'Set-Cookie': sessionCookie(token, maxAge) });
+}
+function clearSessionResponse(headers = {}) {
+  return json({ ok: true }, 200, { ...headers, 'Set-Cookie': sessionCookie('', 0) });
+}
 function hex(bytes) { return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join(''); }
 async function sha256(value) { return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))); }
 async function passwordHash(password, salt, iterations = PASSWORD_ITERATIONS) {
@@ -131,7 +146,7 @@ async function trader(env, accountId) {
 }
 
 async function currentAccount(request, env) {
-  const token = bearer(request);
+  const token = sessionToken(request);
   if (env.ADMIN_ACCESS_CODE && token.startsWith('owner.')) {
     const migrated = await env.DB.prepare("SELECT account_id FROM accounts WHERE role = 'owner' AND password_hash IS NOT NULL LIMIT 1").bind().first();
     if (migrated) return null;
@@ -309,7 +324,7 @@ async function login(request, env) {
     throw httpError(401, 'INVALID_LOGIN', 'Неверный ID или пароль');
   }
   const token = await issueSession(env, account, remember === true);
-  return { ...await accountStatus(env, account), token };
+  return { ...await accountStatus(env, account), token, remember: remember === true };
 }
 async function setupPassword(request, env) {
   let account;
@@ -567,10 +582,12 @@ async function analyze(request, env, account) {
   const payload = await readJson(request, 16_100_000);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload))
     throw httpError(400, 'INVALID_JSON', 'Некорректный запрос анализа');
-  const { image, mode = 'Fast', expiry = 3 } = payload;
+  const { image, preview = null, mode = 'Fast', expiry = 3 } = payload;
   if (!Number.isInteger(expiry) || !EXPIRIES.includes(expiry)) throw httpError(400, 'INVALID_EXPIRY', 'Выберите экспирацию 1, 3, 5 или 15 минут');
   if (!tier.availableAiModes.includes(mode)) throw httpError(403, 'MODE_LOCKED', 'Этот режим доступен на более высоком уровне');
   if (!validImage(image)) throw httpError(400, 'INVALID_IMAGE', 'Изображение не удалось прочитать. Загрузите JPG, PNG или WebP.');
+  if (preview !== null && (typeof preview !== 'string' || preview.length > 120_000 || !validImage(preview)))
+    throw httpError(400, 'INVALID_PREVIEW', 'Не удалось подготовить миниатюру графика.');
   const now = Date.now();
   const cooldown = Math.max(0, Number(env.ANALYSIS_COOLDOWN_SECONDS ?? 45)) * 1000;
   const cost = AI_MODES[mode].cost;
@@ -626,7 +643,7 @@ async function analyze(request, env, account) {
       asset = ?, expiry = ?, cost_credits = ?, signal_duration_seconds = ?, signal_expires_at = ?
       WHERE id = ? AND status = 'pending' AND (? = 1 OR EXISTS
         (SELECT 1 FROM accounts WHERE account_id = ? AND last_committed_analysis_id = ?))`)
-      .bind(result.verdict, JSON.stringify(result), createdAt, result.pair, result.signal_duration_minutes,
+      .bind(result.verdict, JSON.stringify({ ...result, image_preview: preview }), createdAt, result.pair, result.signal_duration_minutes,
         cost, signalDuration, signalExpiresAt, analysisId,
         privileged ? 1 : 0, account.account_id, analysisId);
     if (!privileged) {
@@ -663,7 +680,7 @@ async function analyze(request, env, account) {
     }
     return { id: analysisId, asset: result.pair, mode, created_at: createdAt,
       signalCreatedAt: createdAt,
-      signalExpiresAt, signalDuration, serverTime: Date.now(),
+      signalExpiresAt, signalDuration, preview, serverTime: Date.now(),
       account: current ? await accountStatus(env, current) : null, result };
   } catch (error) {
     await env.DB.prepare('DELETE FROM analyses WHERE id = ? AND status = ?').bind(analysisId, 'pending').run();
@@ -675,8 +692,11 @@ async function handler(request, env) {
   const origin = request.headers.get('Origin');
   const headers = cors(origin, env);
   const route = new URL(request.url).pathname;
-  if ((request.method === 'GET' || request.method === 'HEAD') && !route.startsWith('/api/') && route !== '/go' && env.ASSETS)
-    return env.ASSETS.fetch(request);
+  if ((request.method === 'GET' || request.method === 'HEAD') && !route.startsWith('/api/') && route !== '/go' && env.ASSETS) {
+    const appRoute = /^\/(?:login|register|verify|password-setup|deposit|history(?:\/[a-f0-9-]{36})?|level|settings)(?:\/)?$/.test(route);
+    const assetRequest = appRoute ? new Request(new URL('/index.html', request.url), request) : request;
+    return env.ASSETS.fetch(assetRequest);
+  }
   if (request.method === 'OPTIONS') return new Response(null, { status: allowedOrigin(origin, env) ? 204 : 403, headers });
   if (origin && !allowedOrigin(origin, env) && route !== '/api/postback') return error(403, 'FORBIDDEN_ORIGIN', 'Недопустимый источник');
   if (route === '/api/config' && request.method === 'GET') return json({
@@ -692,23 +712,31 @@ async function handler(request, env) {
   if (!env.DB) return error(503, 'DATABASE_NOT_CONFIGURED', 'База пока не подключена', headers);
   try {
     if (route === '/api/postback' && (request.method === 'POST' || request.method === 'GET')) return json(await postback(request, env), 200, headers);
-    if (route === '/api/auth/login' && request.method === 'POST') return json(await login(request, env), 200, headers);
-    if (route === '/api/auth/setup' && request.method === 'POST') return json(await setupPassword(request, env), 200, headers);
-    if (route === '/api/auth/change-password' && request.method === 'POST') return json(await changePassword(request, env), 200, headers);
+    if (route === '/api/auth/login' && request.method === 'POST') {
+      const result = await login(request, env);
+      return authResponse(result, (result.remember ? 30 : 7) * DAY / 1000, headers);
+    }
+    if (route === '/api/auth/setup' && request.method === 'POST') return authResponse(await setupPassword(request, env), 7 * DAY / 1000, headers);
+    if (route === '/api/auth/change-password' && request.method === 'POST') return authResponse(await changePassword(request, env), 7 * DAY / 1000, headers);
+    if (route === '/api/auth/session' && request.method === 'POST') {
+      const account = await currentAccount(request, env);
+      if (!account || !bearer(request)) return error(401, 'UNAUTHORIZED', 'Сессия недействительна', headers);
+      return authResponse({ ...await accountStatus(env, account), token: bearer(request) }, account.role === 'admin' ? 6 * 3600 : 30 * DAY / 1000, headers);
+    }
     if (route === '/api/auth/logout' && request.method === 'POST') {
-      const token = bearer(request);
+      const token = sessionToken(request);
       if (/^[0-9a-f]{64}$/.test(token)) await env.DB.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(await sha256(token)).run();
-      return json({ ok: true }, 200, headers);
+      return clearSessionResponse(headers);
     }
     if (route === '/api/auth/logout-all' && request.method === 'POST') {
       const account = await currentAccount(request, env);
       if (!account || account.role === 'admin') return error(401, 'UNAUTHORIZED', 'Войдите в аккаунт', headers);
       await env.DB.prepare('UPDATE accounts SET session_version = session_version + 1 WHERE account_id = ?').bind(account.account_id).run();
       await env.DB.prepare('DELETE FROM sessions WHERE account_id = ?').bind(account.account_id).run();
-      return json({ ok: true }, 200, headers);
+      return clearSessionResponse(headers);
     }
-    if (route === '/api/admin/login' && request.method === 'POST') return json(await ownerLogin(request, env), 200, headers);
-    if (route === '/api/admin/migrate-owner' && request.method === 'POST') return json(await migrateOwner(request, env), 200, headers);
+    if (route === '/api/admin/login' && request.method === 'POST') return authResponse(await ownerLogin(request, env), 6 * 3600, headers);
+    if (route === '/api/admin/migrate-owner' && request.method === 'POST') return authResponse(await migrateOwner(request, env), 7 * DAY / 1000, headers);
     if (route === '/api/admin/stats' && request.method === 'GET') {
       const account = await currentAccount(request, env);
       return ['admin', 'owner'].includes(account?.role) && !account.must_change_password ? json(await ownerStats(env), 200, headers) : error(403, 'FORBIDDEN', 'Доступ только для владельца', headers);
@@ -732,7 +760,7 @@ async function handler(request, env) {
       ownerOnly(await currentAccount(request, env));
       return json(await ownerResetPassword(request, env, resetRoute[1]), 200, headers);
     }
-    if (route === '/api/claim' && request.method === 'POST') return json(await claim(request, env), 200, headers);
+    if (route === '/api/claim' && request.method === 'POST') return authResponse(await claim(request, env), 7 * DAY / 1000, headers);
     if (route === '/api/me' && request.method === 'GET') return json(await accountStatus(env, await currentAccount(request, env)), 200, headers);
     if (route === '/api/activation/check' && request.method === 'POST') {
       const account = await currentAccount(request, env);
@@ -743,21 +771,46 @@ async function handler(request, env) {
         .bind(account.account_id).first();
       return json(await accountStatus(env, refreshed), 200, headers);
     }
-    if (route === '/api/history' && request.method === 'GET') {
+    if ((route === '/api/history' || /^\/api\/history\/[a-f0-9-]{36}$/.test(route)) && request.method === 'GET') {
       const account = await currentAccount(request, env);
       if (account && account.role !== 'admin' && (!account.password_hash || account.must_change_password))
         return error(403, 'PASSWORD_REQUIRED', 'Сначала настройте пароль BLUFIN+', headers);
       if (!account || (account.role !== 'admin' && account.role !== 'owner' && account.account_id !== UNLIMITED_ACCOUNT && (!account.activated_at || !levelNamed(account.tier))))
         return error(403, 'LOCKED', 'Доступ не активирован', headers);
-      const data = await env.DB.prepare(`SELECT id, asset, expiry, verdict, result_json, created_at,
+      const recordId = route.slice('/api/history/'.length);
+      const select = `SELECT id, asset, expiry, verdict, result_json, created_at,
         mode, signal_duration_seconds, signal_expires_at
-        FROM analyses WHERE account_id = ? AND status = 'done' AND verdict IN ('UP', 'DOWN') ORDER BY created_at DESC LIMIT 8`).bind(account.account_id).all();
-      return json({ serverTime: Date.now(), analyses: data.results.map(item => ({
-        id: item.id, asset: item.asset, mode: item.mode, created_at: item.created_at,
-        signalCreatedAt: item.signal_expires_at ? item.created_at : null,
-        signalExpiresAt: item.signal_expires_at, signalDuration: item.signal_duration_seconds,
-        result: JSON.parse(item.result_json),
-      })) }, 200, headers);
+        FROM analyses WHERE account_id = ? AND status = 'done' AND verdict IN ('UP', 'DOWN')`;
+      const shape = (item, includePreview = false) => {
+        const { image_preview: preview = null, ...result } = JSON.parse(item.result_json);
+        return { id: item.id, asset: item.asset, mode: item.mode, created_at: item.created_at,
+          signalCreatedAt: item.signal_expires_at ? item.created_at : null,
+          signalExpiresAt: item.signal_expires_at, signalDuration: item.signal_duration_seconds,
+          preview: includePreview ? preview : null, result };
+      };
+      if (recordId) {
+        const item = await env.DB.prepare(`${select} AND id = ?`).bind(account.account_id, recordId).first();
+        return item ? json({ serverTime: Date.now(), analysis: shape(item, true) }, 200, headers)
+          : error(404, 'NOT_FOUND', 'Анализ не найден', headers);
+      }
+      const params = new URL(request.url).searchParams;
+      const page = Math.max(0, Math.min(1000, Number.parseInt(params.get('page') || '0', 10) || 0));
+      const clauses = []; const values = [account.account_id];
+      const mode = params.get('mode'); const direction = params.get('direction');
+      if (['Fast', 'Deep', 'Maximum'].includes(mode)) { clauses.push('mode = ?'); values.push(mode); }
+      if (['UP', 'DOWN'].includes(direction)) { clauses.push('verdict = ?'); values.push(direction); }
+      const search = params.get('q')?.trim().slice(0, 80);
+      if (search) { clauses.push("UPPER(asset) LIKE ? ESCAPE '\\'"); values.push(`%${search.toUpperCase().replace(/[\\%_]/g, '\\$&')}%`); }
+      const date = params.get('date');
+      if (date && /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
+        const offset = Math.max(-840, Math.min(840, Number.parseInt(params.get('tz') || '0', 10) || 0));
+        const start = Date.parse(`${date}T00:00:00Z`) + offset * 60_000;
+        clauses.push('created_at >= ? AND created_at < ?'); values.push(start, start + DAY);
+      }
+      const data = await env.DB.prepare(`${select} ${clauses.length ? `AND ${clauses.join(' AND ')}` : ''}
+        ORDER BY created_at DESC LIMIT 13 OFFSET ?`).bind(...values, page * 12).all();
+      return json({ serverTime: Date.now(), page, hasMore: data.results.length > 12,
+        analyses: data.results.slice(0, 12).map(shape) }, 200, headers);
     }
     if (route === '/api/analyze' && request.method === 'POST') return json(await analyze(request, env, await currentAccount(request, env)), 200, headers);
     return error(404, 'NOT_FOUND', 'Маршрут не найден', headers);
