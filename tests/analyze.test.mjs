@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { analyze, setupPassword } from '../worker/index.js';
+import worker, { analyze, setupPassword } from '../worker/index.js';
 
 const account = {
   account_id: '12345', activated_at: Date.now(), tier: 'PRO', role: 'user',
@@ -158,4 +158,25 @@ test('password setup does not return a token when the transaction fails', async 
     headers: { Authorization: `Bearer ${'a'.repeat(64)}` },
     body: JSON.stringify({ password: 'long-test-password-123' }),
   }), { DB: db }), error => error.code === 'PASSWORD_SETUP_FAILED');
+});
+
+test('login initializes the rate-limit table before querying it', async () => {
+  const queries = [];
+  const db = {
+    async exec(sql) { queries.push(sql); },
+    prepare(sql) {
+      return { bind() { return {
+        async first() { queries.push(sql); return { total: 0 }; },
+      }; } };
+    },
+    async batch() { return []; },
+  };
+  const response = await worker.fetch(new Request('https://worker.example/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId: '0', password: 'not-a-real-password' }),
+  }), { DB: db, POSTBACK_SECRET: 'test' });
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, 'INVALID_LOGIN');
+  assert.match(queries[0], /CREATE TABLE IF NOT EXISTS login_attempts/);
+  assert.match(queries[1], /SELECT COUNT\(\*\) AS total FROM login_attempts/);
 });

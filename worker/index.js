@@ -13,6 +13,16 @@ const LOGIN_ATTEMPTS_SCHEMA = `CREATE TABLE IF NOT EXISTS login_attempts (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS login_attempts_key_created ON login_attempts(key_hash, created_at DESC);`;
+let loginSchemaPromise;
+function ensureLoginAttempts(env) {
+  if (!loginSchemaPromise) {
+    loginSchemaPromise = env.DB.exec(LOGIN_ATTEMPTS_SCHEMA).catch(cause => {
+      loginSchemaPromise = null;
+      throw cause;
+    });
+  }
+  return loginSchemaPromise;
+}
 const OWNER_CODE_PATTERN = /^(?:[0-9a-f]{64}|[0-9]{10,16})$/;
 
 function cors(origin, env) {
@@ -241,16 +251,10 @@ async function login(request, env) {
   const normalizedId = id(accountId) ? accountId : 'invalid';
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const keys = await Promise.all([`ip:${ip}`, `id:${normalizedId}`].map(value => sha256(`BLUFIN_LOGIN:${env.POSTBACK_SECRET || env.ADMIN_ACCESS_CODE}:${value}`)));
+  await ensureLoginAttempts(env);
   const windowStart = Date.now() - 15 * 60_000;
   for (const key of keys) {
-    let count;
-    try {
-      count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
-    } catch (cause) {
-      if (!/no such table:\s*login_attempts/i.test(String(cause?.message))) throw cause;
-      await env.DB.exec(LOGIN_ATTEMPTS_SCHEMA);
-      count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
-    }
+    const count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
     if (count.total >= 5) throw httpError(429, 'LOGIN_LIMIT', 'Слишком много попыток. Попробуйте через 15 минут.');
   }
   const account = normalizedId === 'invalid' ? null : await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(normalizedId).first();
@@ -611,7 +615,7 @@ async function handler(request, env) {
     referralUrl: env.REFERRAL_URL || 'https://bdclick.app/smart/site',
     attributionConfigured: Boolean(env.PARTNER_API_KEY && env.POSTBACK_SECRET && env.DB),
     adminConfigured: Boolean(env.DB && OWNER_CODE_PATTERN.test(env.ADMIN_ACCESS_CODE || '')),
-    assets: ASSETS, expiries: EXPIRIES, analysisApiVersion: 2, levels: LEVELS, aiModes: AI_MODES,
+    assets: ASSETS, expiries: EXPIRIES, analysisApiVersion: 2, authSchemaVersion: 1, levels: LEVELS, aiModes: AI_MODES,
   }, 200, headers);
   if (route === '/go' && request.method === 'GET') {
     if (!env.PARTNER_API_KEY || !env.POSTBACK_SECRET) return error(503, 'NOT_CONFIGURED', 'Регистрация пока не подключена', headers);
@@ -700,7 +704,7 @@ export default {
   fetch: handler,
   async scheduled(_event, env) {
     const now = Date.now();
-    await env.DB.exec(LOGIN_ATTEMPTS_SCHEMA);
+    await ensureLoginAttempts(env);
     await env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
       env.DB.prepare('DELETE FROM claim_attempts WHERE created_at < ?').bind(now - DAY),
