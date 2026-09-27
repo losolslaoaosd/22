@@ -1,5 +1,11 @@
 const $ = selector => document.querySelector(selector);
-const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', expiry: 3, config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: sessionStorage.getItem('blufin_session') };
+const SESSION_KEY = 'blufin_session';
+const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', expiry: 3, config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY) };
+function storeSession(token, persistent = true) {
+  if (persistent) { localStorage.setItem(SESSION_KEY, token); sessionStorage.removeItem(SESSION_KEY); }
+  else { sessionStorage.setItem(SESSION_KEY, token); localStorage.removeItem(SESSION_KEY); }
+}
+function removeSession() { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); }
 const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'account', 'owner-stats-view'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
@@ -34,7 +40,7 @@ function renderLevels() {
     const title = document.createElement('h3'); title.textContent = level.id;
     const info = document.createElement('button'); info.type = 'button'; info.className = 'level-info';
     info.dataset.levelInfo = level.id; info.setAttribute('aria-label', `Подробнее об уровне ${level.id}`); info.textContent = '?';
-    const price = document.createElement('strong'); price.className = 'level-price'; price.textContent = `от ${money(level.minDeposit)}`;
+    const price = document.createElement('strong'); price.className = 'level-price'; price.textContent = `Депозит от ${money(level.minDeposit)}`;
     const signals = document.createElement('strong'); signals.className = 'level-signals';
     signals.textContent = level.signalLimit === null ? 'Безлимит' : `${level.signalLimit} ${level.signalLimit === 3 ? 'сигнала' : 'сигналов'} / 24 ч`;
     const extra = document.createElement('div'); extra.className = 'level-extra';
@@ -374,6 +380,12 @@ async function refreshOwnerUsers(more = false) {
         const cell = document.createElement('td'); cell.dataset.label = labels[index];
         cell.append(index === 1 ? tierBadge(user.tier) : document.createTextNode(value)); row.append(cell);
       });
+      const actions = document.createElement('td'); actions.dataset.label = 'Действия';
+      const reset = uiNode('button', 'Сбросить пароль', 'owner-row-reset');
+      reset.type = 'button'; reset.dataset.resetPassword = user.accountId;
+      reset.setAttribute('aria-label', `Сбросить пароль пользователя ID ${user.accountId}`);
+      actions.append(reset);
+      row.append(actions);
       $('#owner-users-body').append(row);
     }
     $('#owner-more').classList.toggle('hidden', !data.hasMore);
@@ -410,15 +422,13 @@ function renderOwnerUser(data, appendSignals = false) {
     }
     const refresh = uiNode('button', 'Пересчитать по подтверждённым депозитам', 'button secondary');
     refresh.id = 'owner-user-refresh'; refresh.type = 'button'; box.append(refresh);
-    if (user.passwordConfigured) {
-      const reset = uiNode('form', '', 'owner-password-reset'); reset.id = 'owner-password-reset';
-      reset.append(uiNode('h3', 'Сменить пароль пользователя'));
-      const label = uiNode('label', 'Временный пароль BLUFIN+'); label.htmlFor = 'owner-temporary-password';
-      const input = document.createElement('input'); input.id = 'owner-temporary-password'; input.type = 'password'; input.minLength = 10; input.required = true; input.autocomplete = 'new-password';
-      const submit = uiNode('button', 'Установить временный пароль', 'button secondary'); submit.type = 'submit';
-      const note = uiNode('p', 'После входа пользователь должен сменить этот пароль.', 'fine-print'); note.id = 'owner-reset-message';
-      reset.append(label, input, submit, note); box.append(reset);
-    }
+    const reset = uiNode('form', '', 'owner-password-reset'); reset.id = 'owner-password-reset';
+    reset.append(uiNode('h3', 'Сбросить пароль пользователя'));
+    const label = uiNode('label', 'Временный пароль BLUFIN+'); label.htmlFor = 'owner-temporary-password';
+    const input = document.createElement('input'); input.id = 'owner-temporary-password'; input.type = 'password'; input.minLength = 10; input.required = true; input.autocomplete = 'new-password';
+    const submit = uiNode('button', 'Сбросить пароль', 'button secondary'); submit.type = 'submit';
+    const note = uiNode('p', 'После входа пользователь должен сменить этот пароль.', 'fine-print'); note.id = 'owner-reset-message';
+    reset.append(label, input, submit, note); box.append(reset);
     box.append(uiNode('h3', 'Подтверждённые депозиты'));
     const deposits = uiNode('ul', '', 'owner-detail-list');
     for (const item of data.deposits) { const li = uiNode('li'); li.append(uiNode('span', dateLabel(item.confirmedAt)), uiNode('span', `${money(item.amountCents)} · Confirmed`)); deposits.append(li); }
@@ -453,7 +463,7 @@ async function enterOwnerCode(code) {
   const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code }) });
   state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
   state.account = { status: 'active', role: 'admin', tier: 'ULTRA', modes: ['Fast', 'Deep', 'Maximum'] }; state.latestResult = null;
-  sessionStorage.setItem('blufin_session', result.token);
+  storeSession(result.token, false);
   $('#account-id').value = '';
   await refreshSession(false);
   routeFromStatus();
@@ -477,7 +487,7 @@ $('#owner-code-form')?.addEventListener('submit', async event => {
 });
 function acceptAuth(result) {
   state.token = result.token;
-  sessionStorage.setItem('blufin_session', result.token);
+  storeSession(result.token, result.role !== 'admin');
   state.status = result.status;
   state.role = result.role || 'user';
   state.accountId = result.accountId || null;
@@ -488,7 +498,7 @@ function acceptAuth(result) {
 }
 function clearAuth() {
   state.token = null; state.status = 'guest'; state.role = null; state.accountId = null; state.account = null;
-  sessionStorage.removeItem('blufin_session');
+  removeSession();
   state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
   state.resultTimer = null; showTerminal('empty');
   if (section) window.location.replace(siteRoot.href);
@@ -502,7 +512,7 @@ async function refreshSession(navigate = true, preserveHistory = false) {
   }
   try {
     const account = await api('/api/me');
-    if (account.status === 'guest') { state.token = null; sessionStorage.removeItem('blufin_session'); }
+    if (account.status === 'guest') { state.token = null; removeSession(); }
     const changed = account.status !== state.status;
     state.status = account.status;
     state.accountId = account.accountId || null;
@@ -540,7 +550,7 @@ function showAnalysisError(error) {
   heading.textContent = screenshotIssue ? 'Не удалось распознать данные графика' : 'Анализ не завершился';
   const description = document.createElement('span');
   description.textContent = screenshotIssue
-    ? 'Проверьте, что на скриншоте видны торговая пара, цена, таймфрейм и сам график.'
+    ? 'Попробуйте загрузить другой скриншот графика.'
     : error.code === 'AI_INVALID_RESPONSE'
       ? 'Ответ не был готов. AI Credits за этот запрос не списаны. Попробуйте повторить анализ.'
       : 'Попробуйте повторить анализ. Если запрос прервался, проверьте баланс перед новой попыткой.';
@@ -553,7 +563,7 @@ function showAnalysisError(error) {
 function setFile(file) {
   if (!file) return;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return message($('#analysis-error'), 'Нужен скриншот в формате JPG, PNG или WebP.');
-  if (file.size > 5_000_000) return message($('#analysis-error'), 'Файл должен быть меньше 5 МБ.');
+  if (file.size > 20_000_000) return message($('#analysis-error'), 'Скриншот должен быть меньше 20 МБ.');
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   state.file = file;
   state.previewUrl = URL.createObjectURL(file);
@@ -570,8 +580,21 @@ async function imageDataUrl(file) {
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(image.width * scale));
     canvas.height = Math.max(1, Math.round(image.height * scale));
-    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.9);
+    const maxLength = 4_600_000; // Keeps the decoded image below the Worker's 3.5 MB limit.
+    for (const ratio of [1, .82, .68]) {
+      canvas.width = Math.max(1, Math.round(image.width * scale * ratio));
+      canvas.height = Math.max(1, Math.round(image.height * scale * ratio));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      if (file.type === 'image/png') {
+        const png = canvas.toDataURL('image/png');
+        if (png.length <= maxLength) return png;
+      }
+      for (const quality of [.92, .82, .72]) {
+        const jpeg = canvas.toDataURL('image/jpeg', quality);
+        if (jpeg.length <= maxLength) return jpeg;
+      }
+    }
+    throw new Error('Изображение слишком большое. Попробуйте другой скриншот.');
   } finally { image.close(); }
 }
 function showTerminal(section) {
@@ -723,9 +746,14 @@ async function init() {
     const button = $('#login-form button[type=submit]'); button.disabled = true;
     $('#login-message').classList.add('hidden');
     try {
+      if ($('#login-id').value.trim().toLowerCase() === 'owner') {
+        await enterOwnerCode($('#login-password').value);
+        $('#login-password').value = '';
+        return;
+      }
       const result = await api('/api/auth/login', { method: 'POST', body: JSON.stringify({
         accountId: $('#login-id').value.trim(), password: $('#login-password').value,
-        remember: false,
+        remember: true,
       }) });
       $('#login-password').value = ''; acceptAuth(result);
     } catch (error) { message($('#login-message'), error.message); }
@@ -831,7 +859,16 @@ async function init() {
     refreshOwnerUsers(false);
   });
   $('#owner-more').addEventListener('click', () => refreshOwnerUsers(true));
-  $('#owner-users-body').addEventListener('click', event => { const row = event.target.closest('[data-account-id]'); if (row) openOwnerUser(row.dataset.accountId); });
+  $('#owner-users-body').addEventListener('click', async event => {
+    const reset = event.target.closest('[data-reset-password]');
+    if (reset) {
+      event.stopPropagation();
+      await openOwnerUser(reset.dataset.resetPassword);
+      $('#owner-temporary-password')?.focus();
+      return;
+    }
+    const row = event.target.closest('[data-account-id]'); if (row) openOwnerUser(row.dataset.accountId);
+  });
   $('#owner-users-body').addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key) && event.target.matches('[data-account-id]')) { event.preventDefault(); openOwnerUser(event.target.dataset.accountId); } });
   $('#close-owner-user').addEventListener('click', () => $('#owner-user-dialog').close());
   $('#owner-user-dialog').addEventListener('click', event => { if (event.target.id === 'owner-user-dialog') event.target.close(); });
@@ -849,9 +886,12 @@ async function init() {
   });
   $('#owner-user-content').addEventListener('submit', async event => {
     if (event.target.id !== 'owner-password-reset') return;
-    event.preventDefault(); const button = event.target.querySelector('button[type=submit]'); button.disabled = true;
+    event.preventDefault();
+    if (!window.confirm(`Сбросить пароль пользователя ID ${state.ownerUserId}? Все его текущие сеансы завершатся.`)) return;
+    const button = event.target.querySelector('button[type=submit]'); button.disabled = true;
     try {
       await api(`/api/admin/users/${state.ownerUserId}/reset-password`, { method: 'POST', body: JSON.stringify({ temporaryPassword: $('#owner-temporary-password').value }) });
+      event.target.reset();
       message($('#owner-reset-message'), 'Пароль изменён. Передайте временный пароль пользователю лично. При следующем входе потребуется его сменить.', false);
     } catch (error) { message($('#owner-reset-message'), error.message); }
     finally { button.disabled = false; }
@@ -902,6 +942,14 @@ async function init() {
   $('#dropzone').addEventListener('dragover', e => { e.preventDefault(); $('#dropzone').classList.add('dragging'); });
   $('#dropzone').addEventListener('dragleave', () => $('#dropzone').classList.remove('dragging'));
   $('#dropzone').addEventListener('drop', e => { e.preventDefault(); $('#dropzone').classList.remove('dragging'); setFile(e.dataTransfer.files[0]); });
+  document.addEventListener('paste', event => {
+    if ($('#dashboard').classList.contains('hidden') || (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable="true"]'))) return;
+    const item = [...(event.clipboardData?.items || [])].find(entry => entry.kind === 'file' && entry.type.startsWith('image/'));
+    const image = item?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    setFile(new File([image], image.name || 'Вставленный скриншот.png', { type: image.type }));
+  });
   $('#remove-file').addEventListener('click', e => {
     e.stopPropagation(); state.file = null; $('#chart-file').value = '';
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
@@ -941,7 +989,6 @@ async function init() {
     beginProcessing(state.mode);
     try {
       const image = await imageDataUrl(state.file);
-      if (image.length > 4_700_000) throw new Error('Изображение слишком большое. Загрузите более компактный скриншот.');
       imagePrepared();
       const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, mode: state.mode, expiry: state.expiry }) });
       renderResult(result, true);

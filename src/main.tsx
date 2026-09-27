@@ -19,6 +19,8 @@ function HeaderActions() {
 function LandingAccess() {
   return <Card className="hero-login-card">
     <CardContent>
+      <h2 className="hero-card-title">Передовой AI-анализ торгового графика</h2>
+      <p className="hero-card-description">Загрузите график и получите разбор рыночной структуры, направления и торгового сценария.</p>
       <Button id="begin-button" type="button" className="hero-submit">Получить доступ <ArrowUpRight aria-hidden="true" /></Button>
     </CardContent>
     <CardFooter>
@@ -70,7 +72,7 @@ if (heroGrid && actions && visual) {
     </div>
     <div className="hero-amounts" aria-hidden="true">
       {[184, 427, 1240, 96].map((amount, index) =>
-        <span className={`hero-amount hero-amount-${index + 1}`} key={amount} data-count-to={amount}>+$0</span>)}
+        <span className={`hero-amount hero-amount-${index + 1}`} key={amount} data-count-to={amount}><span className="profit-currency">+$</span><span className="profit-value">0</span></span>)}
     </div>
     <img className="hero-person" src={new URL("hero-bluefin.png", assetRoot).href} alt="" />
   </>)
@@ -78,7 +80,8 @@ if (heroGrid && actions && visual) {
   const values = visual.querySelectorAll<HTMLElement>("[data-count-to]")
   const updateNumbers = (progress: number) => values.forEach((node) => {
     const value = Number(node.dataset.countTo) * progress
-    node.textContent = `+$${Math.round(value).toLocaleString("en-US")}`
+    const number = node.querySelector<HTMLElement>(".profit-value")
+    if (number) number.textContent = Math.round(value).toLocaleString("en-US")
   })
   if (reduceMotion.matches) updateNumbers(1)
   else {

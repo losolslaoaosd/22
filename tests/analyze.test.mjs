@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import worker, { analyze, setupPassword, passwordHash } from '../worker/index.js';
+import worker, { analyze, setupPassword, passwordHash, ownerResetPassword } from '../worker/index.js';
 
 const account = {
   account_id: '12345', activated_at: Date.now(), tier: 'PRO', role: 'user',
@@ -35,10 +35,10 @@ function dbMock() {
   };
   return { db, writes };
 }
-function request(expiry) {
+function request(expiry, screenshot = image) {
   return new Request('https://worker.example/api/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image, mode: 'Fast', expiry }),
+    body: JSON.stringify({ image: screenshot, mode: 'Fast', expiry }),
   });
 }
 function response(status, result, extra = {}) {
@@ -103,6 +103,57 @@ test('unreadable chart does not charge and invalid expiry is rejected before res
   assert.equal(writes.filter(write => write.sql.startsWith('DELETE FROM analyses')).length, 1);
   await assert.rejects(analyze(request(2), { DB: db, OPENAI_API_KEY: 'test' }, account), error => error.code === 'INVALID_EXPIRY');
   assert.equal(writes.length, 2);
+});
+
+test('visible chart with unreadable price and timeframe still produces a result', async () => {
+  const { db, writes } = dbMock();
+  const responseData = { ...analysis, pair: 'BTC/USDT', current_price: null, timeframe: null, sufficient_history: false };
+  const result = await withFetch(async () => response('completed', responseData),
+    () => analyze(request(3), { DB: db, OPENAI_API_KEY: 'test' }, account));
+  assert.equal(result.result.pair, 'BTC/USDT');
+  assert.equal(result.result.current_price, null);
+  assert.equal(result.result.timeframe, null);
+  assert.equal(writes.filter(write => write.sql === 'BATCH').length, 1);
+});
+
+test('TradingView-style compact crypto symbol is recognized', async () => {
+  const { db } = dbMock();
+  const result = await withFetch(async () => response('completed', { ...analysis, pair: 'BINANCE:BTCUSDT' }),
+    () => analyze(request(3), { DB: db, OPENAI_API_KEY: 'test' }, account));
+  assert.equal(result.result.pair, 'BTC/USDT');
+});
+
+test('PNG and WebP screenshots reach the vision API with their MIME types intact', async () => {
+  const fixtures = [
+    ['png', Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(2200)])],
+    ['webp', Buffer.concat([Buffer.from('RIFF0000WEBP'), Buffer.alloc(2200)])],
+  ];
+  for (const [format, bytes] of fixtures) {
+    const screenshot = `data:image/${format};base64,${bytes.toString('base64')}`;
+    const { db } = dbMock();
+    let sentImage;
+    await withFetch(async (_url, options) => {
+      sentImage = JSON.parse(options.body).input[0].content[1].image_url;
+      return response('completed', analysis);
+    }, () => analyze(request(3, screenshot), { DB: db, OPENAI_API_KEY: 'test' }, account));
+    assert.equal(sentImage, screenshot);
+  }
+});
+
+test('owner reset stores a hash, requires password change and revokes sessions', async () => {
+  const { db, writes } = dbMock();
+  const temporaryPassword = 'TemporaryPassword-2026';
+  const resetRequest = new Request('https://worker.example/api/admin/users/12345/reset-password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ temporaryPassword }),
+  });
+  const result = await ownerResetPassword(resetRequest, { DB: db }, '12345');
+  assert.equal(result.mustChangePassword, true);
+  const update = writes.find(write => write.sql.startsWith('UPDATE accounts SET password_hash'));
+  assert.ok(update);
+  assert.notEqual(update.args[0], temporaryPassword);
+  assert.equal(update.args[3], '12345');
+  assert.ok(writes.some(write => write.sql === 'DELETE FROM sessions WHERE account_id = ?'));
 });
 
 test('every public entry page exposes the same expiry and level controls', () => {

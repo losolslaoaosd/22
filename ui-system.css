@@ -242,3 +242,55 @@ html, body, button, input, select, textarea { font-family: Manrope, Inter, syste
   .signal-analysis dl > div { grid-template-columns: minmax(75px, 30%) minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { .hero-amount, .register-next { animation: none; opacity: 1; } }
+
+/* BLUFIN+ accents and shared glass surfaces */
+.profit-currency, .profit-tag em { color: #75d6ac; font-style: normal; text-shadow: 0 0 10px #55c99655; }
+.hero-amount { box-shadow: 0 9px 25px #0007, 0 0 17px #60c99a18, inset 0 1px #ffffff1c; }
+.hero-card-title { margin: 2px 0 7px; color: #f4f7ff; font-size: 15px; font-weight: 800; letter-spacing: -.02em; line-height: 1.3; }
+.hero-card-description { margin: 0 0 14px; color: #b4c4de; font-size: 12px; line-height: 1.5; }
+.public-levels > p { max-width: 760px; line-height: 1.55; }
+.public-levels .level-card, .deposit-card .level-card { border: 1px solid #b7c9ee28; border-top: 1px solid #d6e3ff40; background: linear-gradient(155deg, #ffffff10, #111d32db 44%, #101a2be8); box-shadow: inset 0 1px #ffffff1a, 0 14px 30px #0003; backdrop-filter: blur(16px); transition: background .2s ease, box-shadow .2s ease, transform .2s ease; }
+.public-levels .level-card:hover, .deposit-card .level-card:hover { background: linear-gradient(155deg, #ffffff17, #152440e8 52%, #101a2bf0); box-shadow: inset 0 1px #ffffff25, 0 17px 34px #0005, 0 0 17px #5c86ce13; transform: translateY(-2px); }
+.level-card .level-price, .public-levels .level-price { font-size: 13px; line-height: 1.35; font-weight: 800; overflow-wrap: anywhere; }
+.access-aside, .auth-surface, .deposit-card, .upload-column, .signal-panel, .owner-panel, .owner-users, .account-level, .account-info, .account-security { border: 1px solid #d4e0fc2a; background: linear-gradient(145deg, #ffffff0d, #101c30e8 42%, #0d1828ee); box-shadow: inset 0 1px #ffffff22, 0 20px 46px #0004; backdrop-filter: blur(18px) saturate(1.12); border-radius: var(--surface-radius); }
+.access-aside, .deposit-intro { position: relative; }
+.onboarding-star, .deposit-glow { position: absolute; right: 23px; top: 19px; width: 28px; height: 28px; display: grid; place-items: center; color: #9bb6f4; font-size: 26px; line-height: 1; text-shadow: 0 0 16px #6e9bef70; pointer-events: none; }
+#register .access-grid, #access .access-grid { align-items: stretch; grid-template-columns: minmax(0, 1.1fr) minmax(280px, .9fr); gap: 28px; }
+#register .access-aside, #access .access-aside { align-self: start; height: auto; min-height: 452px; margin-top: 0; display: flex; flex-direction: column; justify-content: center; }
+#register .access-aside .aside-lines, #access .access-aside .aside-lines { margin: 18px 0 0; }
+.access-primary .button { min-height: var(--control-height); }
+.deposit { padding-top: 26px; padding-bottom: 35px; }
+.deposit .step-caption { margin-bottom: 16px; }
+.deposit-card { display: grid; grid-template-columns: minmax(0, .86fr) minmax(0, 1.14fr); align-items: start; gap: 26px; max-width: none; padding: 25px; }
+.deposit-intro, .deposit-details { min-width: 0; }
+.deposit-card h1 { margin: 10px 0 10px; font-size: clamp(30px, 3vw, 41px); }
+.deposit-card .pill { display: inline-flex; align-items: center; gap: 7px; }
+.verified-status { border-color: #69ce9c52; color: #83ddb0; background: #28724725; box-shadow: 0 0 15px #58c78b16; }
+.verified-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #85dfb2; box-shadow: 0 0 8px #85dfb266; }
+.deposit-card p { line-height: 1.5; }
+.deposit-card .cumulative-note { margin: 12px 0; padding: 9px 12px; }
+.deposit-example { margin: 10px 0; }
+.deposit-card .deposit-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 10px; }
+.deposit-actions .button { flex: 1 1 160px; margin: 0; }
+.deposit-card .status-note { margin-top: 8px; }
+.deposit-logout { margin-top: 9px; }
+.deposit-details .level-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.deposit-details .level-card { min-height: 0; padding: 10px 12px; }
+.deposit-details .level-card:last-child { grid-column: 1 / -1; }
+.deposit-details .level-card .level-extra { margin-top: 5px; padding-top: 5px; }
+.deposit-details .deposit-progress { margin: 10px 0 0; }
+.owner-row-reset { border: 1px solid #7d9ac352; border-radius: 8px; padding: 7px 10px; background: #ffffff0b; color: #d8e6fc; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.owner-row-reset:hover { border-color: #a9c1e488; background: #ffffff18; }
+@media (max-width: 900px) {
+  #register .access-grid, #access .access-grid { grid-template-columns: 1fr; gap: 18px; }
+  #register .access-aside, #access .access-aside { min-height: 0; padding: 22px; }
+  .deposit-card { grid-template-columns: 1fr; gap: 17px; }
+}
+@media (max-width: 600px) {
+  .deposit { padding-top: 21px; }
+  .deposit-card { padding: 18px; }
+  .deposit-card h1 { font-size: 31px; }
+  .deposit-actions .button { flex-basis: 100%; }
+  .deposit-details .level-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .owner-table td[data-label="Действия"] { grid-column: 1 / -1; }
+}

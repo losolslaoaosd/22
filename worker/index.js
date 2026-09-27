@@ -355,8 +355,8 @@ async function ownerResetPassword(request, env, accountId) {
   if (!id(accountId)) throw httpError(400, 'INVALID_ID', 'Некорректный ID');
   const { temporaryPassword } = await readJson(request, 2000);
   if (!validPassword(temporaryPassword)) throw httpError(400, 'WEAK_PASSWORD', 'Временный пароль должен содержать от 10 до 128 символов');
-  const target = await env.DB.prepare("SELECT account_id FROM accounts WHERE account_id = ? AND role = 'user' AND password_hash IS NOT NULL").bind(accountId).first();
-  if (!target) throw httpError(404, 'USER_NOT_FOUND', 'Аккаунт с паролем не найден');
+  const target = await env.DB.prepare("SELECT account_id FROM accounts WHERE account_id = ? AND role = 'user'").bind(accountId).first();
+  if (!target) throw httpError(404, 'USER_NOT_FOUND', 'Пользователь не найден');
   const salt = hex(crypto.getRandomValues(new Uint8Array(16)));
   const hash = await passwordHash(temporaryPassword, salt);
   await env.DB.prepare('UPDATE accounts SET password_hash = ?, password_salt = ?, password_iterations = ?, must_change_password = 1, session_version = session_version + 1 WHERE account_id = ?')
@@ -490,7 +490,7 @@ async function analyzeImage(env, image, mode, expiry) {
           model, store: false, max_output_tokens: maxOutputTokens,
           ...(model.startsWith('gpt-5') ? { reasoning: { effort: 'low' } } : {}),
           text: { format: { type: 'json_schema', name: 'chart_analysis', strict: true, schema } },
-          instructions: `Ты аналитик графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Сначала прочитай с изображения торговую пару (pair, например EUR/USD), текущую цену (current_price) и таймфрейм (timeframe, например M1). Если любой параметр не читается, верни для него null, никогда не угадывай. Выставь chart_visible, recent_candles_visible и sufficient_history в true только если реально видны график, последние свечи и достаточная история. Пара должна быть из списка: ${ASSETS.join(', ')}. OTC и другие пары не подходят. Если скриншот пригоден для анализа, выбери только UP или DOWN по видимым признакам. Не выдумывай живые котировки, внешнюю историю, другие таймфреймы и индикаторы. historical_match описывает только паттерны на скриншоте, ai_consensus означает согласованность видимых признаков. Выбранная пользователем экспирация: ${expiry} мин. Учитывай её при анализе, не выбирай другую длительность. Пиши кратко, по 1-2 предложения на поле, и не обещай результата. Если данных для отдельного текстового поля нет, так и скажи в этом поле.`,
+          instructions: `Ты аналитик торговых графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Определи торговую пару (pair), текущую цену (current_price) и таймфрейм (timeframe) только по тому, что читается на скриншоте TradingView, Binodex или другой платформы. Пара может быть обычной, OTC или криптовалютной. Если параметр не виден, верни null и укажи ограничение в limitations; не угадывай его. chart_visible означает, что виден именно ценовой график, а не просто интерфейс биржи. recent_candles_visible и sufficient_history описывают только видимые данные и не требуют идеального полного интерфейса. Если по видимой структуре возможен анализ, выбери UP или DOWN; если графика нет, выставь chart_visible=false. Не выдумывай живые котировки, внешнюю историю, другие таймфреймы и индикаторы. historical_match описывает только паттерны на скриншоте, ai_consensus означает согласованность видимых признаков. Выбранная пользователем экспирация: ${expiry} мин. Учитывай её при анализе, не выбирай другую длительность. Пиши кратко, по 1-2 предложения на поле, и не обещай результата. Если данных для отдельного текстового поля нет, так и скажи в этом поле.`,
           input: [{ role: 'user', content: [
             { type: 'input_text', text: `Проанализируй видимый график для экспирации ${expiry} мин. Определи параметры по скриншоту.` },
             { type: 'input_image', image_url: image, detail: 'high' },
@@ -576,20 +576,23 @@ async function analyze(request, env, account) {
   if (!reservation.meta.changes) throw httpError(429, 'RATE_LIMIT', 'Запрос уже выполняется, действует пауза между сигналами или лимит исчерпан.');
   try {
     const result = await analyzeImage(env, image, mode, expiry);
-    const pairText = typeof result.pair === 'string' ? result.pair.trim().toUpperCase().replace(/[\s-]/g, '') : '';
-    result.pair = ASSETS.find(asset => asset === pairText || asset.replace('/', '') === pairText) || null;
+    const pairText = typeof result.pair === 'string' ? result.pair.trim().toUpperCase().split(':').at(-1).replace(/[\s_-]/g, '') : '';
+    const knownPair = ASSETS.find(asset => asset === pairText || asset.replace('/', '') === pairText);
+    const otc = /(?:\(OTC\)|OTC)$/.test(pairText);
+    const pairCore = pairText.replace(/(?:\(OTC\)|OTC)$/, '');
+    const compactPair = pairCore.match(/^([A-Z0-9]{2,10})(USDT|USDC|USD|EUR|GBP|JPY|BTC|ETH)$/);
+    result.pair = knownPair || (otc && ASSETS.find(asset => asset === pairCore || asset.replace('/', '') === pairCore))
+      || (/^[A-Z0-9]{2,10}\/[A-Z0-9]{2,10}$/.test(pairCore) ? pairCore : null)
+      || (compactPair ? `${compactPair[1]}/${compactPair[2]}` : null);
+    if (result.pair && otc) result.pair += ' OTC';
     const timeframeText = typeof result.timeframe === 'string' ? result.timeframe.trim().toUpperCase().replace(/\s/g, '') : '';
     result.timeframe = /^(?:M|H)[1-9][0-9]?$/.test(timeframeText) ? timeframeText
       : /^([1-9][0-9]?)(M|H)$/.test(timeframeText) ? timeframeText.replace(/^([1-9][0-9]?)(M|H)$/, '$2$1') : null;
     result.current_price = typeof result.current_price === 'string' ? result.current_price.trim().replace(/[\s\u00a0]/g, '').replace(',', '.') : null;
-    if (!result.pair || !ASSETS.includes(result.pair))
-      throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'Не удалось определить поддерживаемую торговую пару. Загрузите полный скриншот с названием пары.');
-    if (!result.timeframe || !/^(?:M[1-9][0-9]?|H[1-9][0-9]?)$/.test(result.timeframe))
-      throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'Не удалось определить таймфрейм. Загрузите скриншот, на котором он хорошо виден.');
-    if (!result.current_price || !/^[0-9]{1,12}(?:\.[0-9]{1,8})?$/.test(result.current_price) || Number(result.current_price) <= 0)
-      throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'Не удалось определить текущую цену. Загрузите скриншот, на котором она хорошо видна.');
-    if (!result.chart_visible || !result.recent_candles_visible || !result.sufficient_history)
-      throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'На скриншоте недостаточно графика или последних свечей. Загрузите полный график с видимой историей.');
+    if (result.timeframe && !/^(?:M[1-9][0-9]?|H[1-9][0-9]?)$/.test(result.timeframe)) result.timeframe = null;
+    if (result.current_price && (!/^[0-9]{1,12}(?:\.[0-9]{1,8})?$/.test(result.current_price) || Number(result.current_price) <= 0)) result.current_price = null;
+    if (!result.chart_visible || (!result.recent_candles_visible && !result.sufficient_history) || !result.pair)
+      throw httpError(422, 'SCREENSHOT_INCOMPLETE', 'Не удалось распознать график. Попробуйте загрузить другой скриншот.');
     const createdAt = Date.now();
     const signalDuration = expiry * 60;
     const signalExpiresAt = createdAt + signalDuration * 1000;
@@ -736,7 +739,7 @@ async function handler(request, env) {
   }
 }
 
-export { analyzeImage, analyze, setupPassword, passwordHash };
+export { analyzeImage, analyze, setupPassword, passwordHash, ownerResetPassword };
 export default {
   fetch: handler,
   async scheduled(_event, env) {
