@@ -257,10 +257,18 @@ async function login(request, env) {
   const normalizedId = id(accountId) ? accountId : 'invalid';
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   const keys = await Promise.all([`ip:${ip}`, `id:${normalizedId}`].map(value => sha256(`BLUFIN_LOGIN:${env.POSTBACK_SECRET || env.ADMIN_ACCESS_CODE}:${value}`)));
-  await ensureLoginAttempts(env);
+  try { await ensureLoginAttempts(env); } catch (cause) {
+    console.error('Login rate schema failed', cause);
+    throw httpError(503, 'AUTH_SCHEMA_UNAVAILABLE', 'Авторизация временно недоступна');
+  }
   const windowStart = Date.now() - 15 * 60_000;
   for (const key of keys) {
-    const count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
+    let count;
+    try { count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first(); }
+    catch (cause) {
+      console.error('Login rate lookup failed', cause);
+      throw httpError(503, 'AUTH_RATE_UNAVAILABLE', 'Авторизация временно недоступна');
+    }
     if (count.total >= 5) throw httpError(429, 'LOGIN_LIMIT', 'Слишком много попыток. Попробуйте через 15 минут.');
   }
   const account = normalizedId === 'invalid' ? null : await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(normalizedId).first();
@@ -274,7 +282,11 @@ async function login(request, env) {
   return { ...await accountStatus(env, account), token };
 }
 async function setupPassword(request, env) {
-  const account = await currentAccount(request, env);
+  let account;
+  try { account = await currentAccount(request, env); } catch (cause) {
+    console.error('Password setup session lookup failed', cause);
+    throw httpError(503, 'AUTH_SESSION_UNAVAILABLE', 'Не удалось проверить сессию. Повторите попытку.');
+  }
   if (!account || account.role === 'admin' || account.password_hash || !account.verified_at)
     throw httpError(403, 'SETUP_UNAVAILABLE', 'Создание пароля сейчас недоступно');
   const { password } = await readJson(request, 2000);
