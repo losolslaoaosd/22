@@ -21,3 +21,6 @@ for (const file of files) {
   await mkdir(dirname(target), { recursive: true });
   await copyFile(join(root, file), target);
 }
+// Loaded only when someone selects a HEIC/HEIF image.
+await copyFile(join(root, 'node_modules/heic-to/dist/csp/heic-to.min.js'), join(output, 'heic-to.min.js'));
+await copyFile(join(root, 'node_modules/heic-to/LICENSE'), join(output, 'heic-to.LICENSE.txt'));

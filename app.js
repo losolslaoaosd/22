@@ -324,8 +324,15 @@ function routeFromStatus() {
 }
 async function api(url, options = {}) {
   if (staticPreview) throw new Error('Доступ откроется после подключения Cloudflare Workers. Сейчас доступен только просмотр сайта.');
-  const response = await fetch(`${apiBase}${url}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
-  const data = await response.json().catch(() => { throw new Error('Сервер проверки сейчас недоступен.'); });
+  let response;
+  try {
+    response = await fetch(`${apiBase}${url}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
+  } catch {
+    throw Object.assign(new Error('Соединение прервалось. Проверьте интернет и повторите попытку.'), { code: 'NETWORK_ERROR' });
+  }
+  const data = await response.json().catch(() => {
+    throw Object.assign(new Error(response.status === 413 ? 'Сервер отклонил слишком большой файл.' : 'Сервер не вернул ответ анализа. Попробуйте ещё раз.'), { code: 'INVALID_SERVER_RESPONSE', status: response.status });
+  });
   if (!response.ok) throw Object.assign(new Error(data.message || 'Не удалось выполнить запрос'), { code: data.code, status: response.status });
   return data;
 }
@@ -541,7 +548,7 @@ async function logoutCurrent() {
   await request;
 }
 function showAnalysisError(error) {
-  const screenshotIssue = ['SCREENSHOT_INCOMPLETE', 'INVALID_IMAGE'].includes(error.code);
+  const screenshotIssue = ['SCREENSHOT_INCOMPLETE', 'INVALID_IMAGE', 'IMAGE_DECODE_FAILED'].includes(error.code);
   const box = $('#analysis-error');
   box.classList.add('analysis-error-card');
   box.classList.remove('hidden');
@@ -550,20 +557,25 @@ function showAnalysisError(error) {
   heading.textContent = screenshotIssue ? 'Не удалось распознать данные графика' : 'Анализ не завершился';
   const description = document.createElement('span');
   description.textContent = screenshotIssue
-    ? 'Попробуйте загрузить другой скриншот графика.'
+    ? (error.message || 'Попробуйте загрузить другой скриншот графика.')
     : error.code === 'AI_INVALID_RESPONSE'
       ? 'Ответ не был готов. AI Credits за этот запрос не списаны. Попробуйте повторить анализ.'
-      : 'Попробуйте повторить анализ. Если запрос прервался, проверьте баланс перед новой попыткой.';
+      : (error.message || 'Попробуйте повторить анализ. AI Credits за неудачный запрос не списываются.');
   const action = document.createElement('button');
   action.type = 'button'; action.className = 'button secondary';
   action.textContent = screenshotIssue ? 'Заменить изображение' : 'Повторить анализ';
-  action.addEventListener('click', () => screenshotIssue ? $('#chart-file').click() : $('#analysis-form').requestSubmit());
+  action.addEventListener('click', () => {
+    if (screenshotIssue) { $('#chart-file').value = ''; $('#chart-file').click(); }
+    else $('#analysis-form').requestSubmit();
+  });
   box.append(heading, description, action);
 }
 function setFile(file) {
   if (!file) return;
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return message($('#analysis-error'), 'Нужен скриншот в формате JPG, PNG или WebP.');
-  if (file.size > 20_000_000) return message($('#analysis-error'), 'Скриншот должен быть меньше 20 МБ.');
+  const mime = file.type.toLowerCase();
+  if (!mime.startsWith('image/') && !/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name))
+    return message($('#analysis-error'), 'Выберите изображение JPG, PNG, WebP, HEIC или HEIF.');
+  if (file.size > 50_000_000) return message($('#analysis-error'), 'Не удалось обработать изображение размером больше 50 МБ.');
   if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
   state.file = file;
   state.previewUrl = URL.createObjectURL(file);
@@ -574,28 +586,57 @@ function setFile(file) {
   $('#analysis-error').classList.add('hidden');
 }
 async function imageDataUrl(file) {
-  const image = await createImageBitmap(file);
+  const heic = /\.(heic|heif)$/i.test(file.name) || /^image\/hei[cf](?:-sequence)?$/i.test(file.type);
+  let source = file;
+  if (heic) {
+    try {
+      const { heicTo } = await import('./heic-to.min.js');
+      source = await heicTo({ blob: file, type: 'image/jpeg', quality: .96 });
+    } catch { throw Object.assign(new Error('Не удалось преобразовать HEIC/HEIF. Выберите другой файл.'), { code: 'IMAGE_DECODE_FAILED' }); }
+  }
+  let image;
+  let objectUrl;
   try {
-    const scale = Math.min(1, 2200 / Math.max(image.width, image.height));
+    if (typeof createImageBitmap === 'function') image = await createImageBitmap(source);
+  } catch { /* Safari can reject a valid photo here. Try the image element below. */ }
+  if (!image) {
+    objectUrl = URL.createObjectURL(source);
+    image = new Image();
+    const loaded = new Promise((resolve, reject) => {
+      image.onload = resolve; image.onerror = reject;
+    });
+    image.src = objectUrl;
+    try { await loaded; }
+    catch { URL.revokeObjectURL(objectUrl); throw Object.assign(new Error('Браузер не смог прочитать изображение. Выберите другой файл.'), { code: 'IMAGE_DECODE_FAILED' }); }
+  }
+  try {
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) throw Object.assign(new Error('Изображение пустое или повреждено.'), { code: 'IMAGE_DECODE_FAILED' });
+    const scale = Math.min(1, 3200 / Math.max(width, height));
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(image.width * scale));
-    canvas.height = Math.max(1, Math.round(image.height * scale));
-    const maxLength = 4_600_000; // Keeps the decoded image below the Worker's 3.5 MB limit.
-    for (const ratio of [1, .82, .68]) {
-      canvas.width = Math.max(1, Math.round(image.width * scale * ratio));
-      canvas.height = Math.max(1, Math.round(image.height * scale * ratio));
-      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-      if (file.type === 'image/png') {
+    const maxLength = 16_000_000; // Up to 12 MB of decoded pixels, with Base64 overhead.
+    for (const ratio of [1, .9, .8, .7, .6]) {
+      canvas.width = Math.max(1, Math.round(width * scale * ratio));
+      canvas.height = Math.max(1, Math.round(height * scale * ratio));
+      const context = canvas.getContext('2d');
+      if (!context) throw Object.assign(new Error('Браузер не смог подготовить изображение.'), { code: 'IMAGE_DECODE_FAILED' });
+      context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      if (file.type === 'image/png' || /\.png$/i.test(file.name)) {
         const png = canvas.toDataURL('image/png');
         if (png.length <= maxLength) return png;
       }
-      for (const quality of [.92, .82, .72]) {
+      for (const quality of [.94, .86, .76]) {
         const jpeg = canvas.toDataURL('image/jpeg', quality);
-        if (jpeg.length <= maxLength) return jpeg;
+        if (jpeg.startsWith('data:image/jpeg;') && jpeg.length <= maxLength) return jpeg;
       }
     }
-    throw new Error('Изображение слишком большое. Попробуйте другой скриншот.');
-  } finally { image.close(); }
+    throw Object.assign(new Error('Не удалось подготовить изображение для анализа.'), { code: 'IMAGE_DECODE_FAILED' });
+  } finally {
+    if (typeof image.close === 'function') image.close();
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }
 }
 function showTerminal(section) {
   for (const [name, id] of Object.entries({ empty: 'terminal-empty', processing: 'terminal-processing', result: 'terminal-result' }))
@@ -987,16 +1028,31 @@ async function init() {
     const button = $('#analyze-button'); button.disabled = true; button.textContent = 'Анализируем график…';
     $('#analysis-error').classList.add('hidden');
     beginProcessing(state.mode);
+    let sentAt = null;
     try {
       const image = await imageDataUrl(state.file);
       imagePrepared();
+      sentAt = Date.now();
       const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, mode: state.mode, expiry: state.expiry }) });
       renderResult(result, true);
       if (result.account) { state.account = result.account; updateTerminalAccount(); }
     } catch (error) {
+      // If the network lost a completed response, recover the committed signal instead of charging for a retry.
+      if (sentAt && ['NETWORK_ERROR', 'INVALID_SERVER_RESPONSE'].includes(error.code)) {
+        try {
+          const history = await api('/api/history');
+          const saved = history.analyses?.find(item => item.created_at >= sentAt && item.mode === state.mode);
+          if (saved) {
+            renderResult({ ...saved, serverTime: history.serverTime }, true);
+            await refreshSession(false, true);
+            return;
+          }
+        } catch { /* The original error is still useful if history is unavailable. */ }
+      }
       showTerminal(state.latestResult ? 'result' : 'empty');
       showAnalysisError(error);
       $('#analysis-error').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (sentAt) await refreshSession(false, true);
     } finally { button.disabled = false; button.innerHTML = 'НАЧАТЬ АНАЛИЗ <span aria-hidden="true">↗</span>'; }
   });
 }

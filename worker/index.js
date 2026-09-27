@@ -92,8 +92,21 @@ async function ownerSignature(secret, value) {
 }
 async function readJson(request, maximum = 5_000_000) {
   if (Number(request.headers.get('Content-Length')) > maximum) throw httpError(413, 'TOO_LARGE', 'Слишком большой запрос');
-  const text = await request.text();
-  if (new TextEncoder().encode(text).byteLength > maximum) throw httpError(413, 'TOO_LARGE', 'Слишком большой запрос');
+  const reader = request.body?.getReader();
+  if (!reader) throw httpError(400, 'INVALID_JSON', 'Пустой запрос');
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maximum) { await reader.cancel(); throw httpError(413, 'TOO_LARGE', 'Слишком большой запрос'); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  const text = new TextDecoder().decode(bytes);
   try { return JSON.parse(text); } catch { throw httpError(400, 'INVALID_JSON', 'Некорректный JSON'); }
 }
 
@@ -535,10 +548,12 @@ function validImage(value) {
   const match = typeof value === 'string' && value.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/);
   if (!match) return false;
   const bytes = Math.floor(match[2].length * 3 / 4) - (match[2].endsWith('==') ? 2 : match[2].endsWith('=') ? 1 : 0);
-  if (bytes < 2000 || bytes > 3_500_000) return false;
-  const prefix = atob(match[2].slice(0, 24));
-  return match[1] === 'jpeg' ? prefix.charCodeAt(0) === 255 && prefix.charCodeAt(1) === 216
-    : match[1] === 'png' ? prefix.startsWith('\x89PNG') : prefix.startsWith('RIFF') && prefix.slice(8, 12) === 'WEBP';
+  if (bytes < 100 || bytes > 12_000_000) return false;
+  try {
+    const prefix = atob(match[2].slice(0, 32));
+    return match[1] === 'jpeg' ? prefix.charCodeAt(0) === 255 && prefix.charCodeAt(1) === 216
+      : match[1] === 'png' ? prefix.startsWith('\x89PNG\r\n\x1a\n') : prefix.startsWith('RIFF') && prefix.slice(8, 12) === 'WEBP';
+  } catch { return false; }
 }
 async function analyze(request, env, account) {
   if (account && account.role !== 'admin' && !account.password_hash) throw httpError(403, 'PASSWORD_SETUP_REQUIRED', 'Сначала создайте пароль BLUFIN+');
@@ -547,10 +562,15 @@ async function analyze(request, env, account) {
   const tier = privileged ? levelNamed('ULTRA') : levelNamed(account?.tier);
   if (!account || (!privileged && (!account.activated_at || !tier))) throw httpError(403, 'LOCKED', 'Доступ не активирован');
   if (!env.OPENAI_API_KEY) throw httpError(503, 'AI_NOT_CONFIGURED', 'Анализ ещё не подключён');
-  const { image, mode = 'Fast', expiry = 3 } = await readJson(request);
+  if (!/^application\/json(?:\s*;|\s*$)/i.test(request.headers.get('Content-Type') || ''))
+    throw httpError(415, 'UNSUPPORTED_CONTENT_TYPE', 'Неверный формат запроса. Обновите страницу и повторите.');
+  const payload = await readJson(request, 16_100_000);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+    throw httpError(400, 'INVALID_JSON', 'Некорректный запрос анализа');
+  const { image, mode = 'Fast', expiry = 3 } = payload;
   if (!Number.isInteger(expiry) || !EXPIRIES.includes(expiry)) throw httpError(400, 'INVALID_EXPIRY', 'Выберите экспирацию 1, 3, 5 или 15 минут');
   if (!tier.availableAiModes.includes(mode)) throw httpError(403, 'MODE_LOCKED', 'Этот режим доступен на более высоком уровне');
-  if (!validImage(image)) throw httpError(400, 'INVALID_IMAGE', 'Загрузите JPG, PNG или WebP размером до 3,5 МБ');
+  if (!validImage(image)) throw httpError(400, 'INVALID_IMAGE', 'Изображение не удалось прочитать. Загрузите JPG, PNG или WebP.');
   const now = Date.now();
   const cooldown = Math.max(0, Number(env.ANALYSIS_COOLDOWN_SECONDS ?? 45)) * 1000;
   const cost = AI_MODES[mode].cost;
@@ -630,13 +650,21 @@ async function analyze(request, env, account) {
       if (!commit.meta.changes || !saved.meta.changes)
         throw httpError(409, 'ACCOUNT_CHANGED', 'Уровень или лимит изменился во время анализа. Повторите запрос.');
     } else {
-      await saveResult.run();
+      const saved = await saveResult.run();
+      if (!saved.meta.changes) throw httpError(409, 'ACCOUNT_CHANGED', 'Не удалось сохранить анализ. Повторите запрос.');
     }
-    const current = privileged ? account : await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(account.account_id).first();
+    let current = account;
+    try {
+      if (!privileged) current = await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(account.account_id).first();
+    } catch (cause) {
+      // The result is already committed; a status refresh must not hide it from the user.
+      console.warn('Analysis saved, account refresh failed', { analysisId, reason: cause?.name });
+      current = null;
+    }
     return { id: analysisId, asset: result.pair, mode, created_at: createdAt,
       signalCreatedAt: createdAt,
       signalExpiresAt, signalDuration, serverTime: Date.now(),
-      account: await accountStatus(env, current), result };
+      account: current ? await accountStatus(env, current) : null, result };
   } catch (error) {
     await env.DB.prepare('DELETE FROM analyses WHERE id = ? AND status = ?').bind(analysisId, 'pending').run();
     throw error;

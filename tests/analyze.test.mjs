@@ -35,10 +35,10 @@ function dbMock() {
   };
   return { db, writes };
 }
-function request(expiry, screenshot = image) {
+function request(expiry, screenshot = image, mode = 'Fast') {
   return new Request('https://worker.example/api/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: screenshot, mode: 'Fast', expiry }),
+    body: JSON.stringify({ image: screenshot, mode, expiry }),
   });
 }
 function response(status, result, extra = {}) {
@@ -138,6 +138,61 @@ test('PNG and WebP screenshots reach the vision API with their MIME types intact
     }, () => analyze(request(3, screenshot), { DB: db, OPENAI_API_KEY: 'test' }, account));
     assert.equal(sentImage, screenshot);
   }
+});
+
+test('all available AI modes complete and charge only on a saved result', async () => {
+  for (const mode of ['Fast', 'Deep', 'Maximum']) {
+    const { db, writes } = dbMock();
+    let sent;
+    const result = await withFetch(async (_url, options) => {
+      sent = JSON.parse(options.body);
+      return response('completed', analysis);
+    }, () => analyze(request(3, image, mode), { DB: db, OPENAI_API_KEY: 'test' }, account));
+    assert.equal(result.mode, mode);
+    assert.equal(sent.input[0].content[1].image_url, image);
+    assert.equal(writes.filter(write => write.sql === 'BATCH').length, 1);
+  }
+});
+
+test('large PNG and JPEG payloads fit the request limit and reach the model', async () => {
+  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(4_100_000)]);
+  const jpeg = Buffer.concat([Buffer.from([255, 216, 255, 224]), Buffer.alloc(4_100_000)]);
+  for (const [format, bytes] of [['png', png], ['jpeg', jpeg]]) {
+    const { db } = dbMock();
+    const dataUrl = `data:image/${format};base64,${bytes.toString('base64')}`;
+    let sent;
+    await withFetch(async (_url, options) => {
+      sent = JSON.parse(options.body).input[0].content[1].image_url;
+      return response('completed', analysis);
+    }, () => analyze(request(3, dataUrl), { DB: db, OPENAI_API_KEY: 'test' }, account));
+    assert.equal(sent, dataUrl);
+  }
+});
+
+test('invalid MIME, excess payload and locked mode fail before reservation and credits', async () => {
+  const { db, writes } = dbMock();
+  const env = { DB: db, OPENAI_API_KEY: 'test' };
+  const heic = 'data:image/heic;base64,' + Buffer.alloc(2200).toString('base64');
+  await assert.rejects(analyze(request(3, heic), env, account), error => error.code === 'INVALID_IMAGE');
+  const locked = { ...account, tier: 'BASE' };
+  await assert.rejects(analyze(request(3, image, 'Maximum'), env, locked), error => error.code === 'MODE_LOCKED');
+  const tooLarge = new Request('https://worker.example/api/analyze', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': '16100001' },
+    body: JSON.stringify({ image, mode: 'Fast', expiry: 3 }),
+  });
+  await assert.rejects(analyze(tooLarge, env, account), error => error.code === 'TOO_LARGE');
+  assert.equal(writes.length, 0);
+});
+
+test('AI API failure allows a retry without a charge on the first attempt', async () => {
+  const { db, writes } = dbMock();
+  await assert.rejects(withFetch(async () => Response.json({ error: { code: 'invalid_image' } }, { status: 400 }),
+    () => analyze(request(3), { DB: db, OPENAI_API_KEY: 'test' }, account)), error => error.code === 'AI_UNAVAILABLE');
+  const result = await withFetch(async () => response('completed', analysis),
+    () => analyze(request(3), { DB: db, OPENAI_API_KEY: 'test' }, account));
+  assert.equal(result.result.verdict, 'UP');
+  assert.equal(writes.filter(write => write.sql === 'BATCH').length, 1);
+  assert.equal(writes.filter(write => write.sql.startsWith('DELETE FROM analyses')).length, 1);
 });
 
 test('owner reset stores a hash, requires password change and revokes sessions', async () => {
