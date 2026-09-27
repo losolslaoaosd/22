@@ -8,15 +8,18 @@ const OWNER_ACCOUNT = '__blufin_owner__';
 const UNLIMITED_ACCOUNT = '99105';
 const ACCOUNT_FIELDS = 'account_id, registered_at, verified_at, activated_at, qualified_deposit_cents, tier, limit_cycle_started_at, limit_cycle_reset_at, signals_used_in_cycle, credits_spent_in_cycle, role, password_hash, password_salt, password_iterations, must_change_password, session_version';
 const PASSWORD_ITERATIONS = 310_000;
-const LOGIN_ATTEMPTS_SCHEMA = `CREATE TABLE IF NOT EXISTS login_attempts (
+const LOGIN_ATTEMPTS_TABLE = `CREATE TABLE IF NOT EXISTS login_attempts (
   key_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS login_attempts_key_created ON login_attempts(key_hash, created_at DESC);`;
+);`;
+const LOGIN_ATTEMPTS_INDEX = 'CREATE INDEX IF NOT EXISTS login_attempts_key_created ON login_attempts(key_hash, created_at DESC)';
 let loginSchemaPromise;
 function ensureLoginAttempts(env) {
   if (!loginSchemaPromise) {
-    loginSchemaPromise = env.DB.exec(LOGIN_ATTEMPTS_SCHEMA).catch(cause => {
+    loginSchemaPromise = (async () => {
+      await env.DB.prepare(LOGIN_ATTEMPTS_TABLE).run();
+      await env.DB.prepare(LOGIN_ATTEMPTS_INDEX).run();
+    })().catch(cause => {
       loginSchemaPromise = null;
       throw cause;
     });

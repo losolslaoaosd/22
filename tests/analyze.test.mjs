@@ -163,9 +163,8 @@ test('password setup does not return a token when the transaction fails', async 
 test('login initializes the rate-limit table before querying it', async () => {
   const queries = [];
   const db = {
-    async exec(sql) { queries.push(sql); },
     prepare(sql) {
-      return { bind() { return {
+      return { async run() { queries.push(sql); }, bind() { return {
         async first() { queries.push(sql); return { total: 0 }; },
       }; } };
     },
@@ -178,5 +177,6 @@ test('login initializes the rate-limit table before querying it', async () => {
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, 'INVALID_LOGIN');
   assert.match(queries[0], /CREATE TABLE IF NOT EXISTS login_attempts/);
-  assert.match(queries[1], /SELECT COUNT\(\*\) AS total FROM login_attempts/);
+  assert.match(queries[1], /CREATE INDEX IF NOT EXISTS login_attempts_key_created/);
+  assert.match(queries[2], /SELECT COUNT\(\*\) AS total FROM login_attempts/);
 });
