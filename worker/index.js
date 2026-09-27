@@ -7,7 +7,8 @@ const DAY = 86_400_000;
 const OWNER_ACCOUNT = '__blufin_owner__';
 const UNLIMITED_ACCOUNT = '99105';
 const ACCOUNT_FIELDS = 'account_id, registered_at, verified_at, activated_at, qualified_deposit_cents, tier, limit_cycle_started_at, limit_cycle_reset_at, signals_used_in_cycle, credits_spent_in_cycle, role, password_hash, password_salt, password_iterations, must_change_password, session_version';
-const PASSWORD_ITERATIONS = 310_000;
+const PASSWORD_ITERATIONS = 400_000;
+const PBKDF2_ROUND_ITERATIONS = 100_000;
 const LOGIN_ATTEMPTS_TABLE = `CREATE TABLE IF NOT EXISTS login_attempts (
   key_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL
@@ -57,8 +58,24 @@ function bearer(request) { return request.headers.get('Authorization')?.match(/^
 function hex(bytes) { return [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join(''); }
 async function sha256(value) { return hex(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))); }
 async function passwordHash(password, salt, iterations = PASSWORD_ITERATIONS) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: Uint8Array.from(salt.match(/../g).map(byte => parseInt(byte, 16))), iterations }, key, 256);
+  const saltBytes = Uint8Array.from(salt.match(/../g).map(byte => parseInt(byte, 16)));
+  let material = new TextEncoder().encode(password);
+  if (iterations === PASSWORD_ITERATIONS) {
+    // Four domain-separated PBKDF2 passes retain a 400,000-iteration work factor
+    // while each WebCrypto call stays within Cloudflare's 100,000-iteration cap.
+    for (let round = 0; round < 4; round++) {
+      const roundSalt = new Uint8Array(saltBytes.length + 1);
+      roundSalt.set(saltBytes);
+      roundSalt[saltBytes.length] = round;
+      const key = await crypto.subtle.importKey('raw', material, 'PBKDF2', false, ['deriveBits']);
+      material = new Uint8Array(await crypto.subtle.deriveBits({
+        name: 'PBKDF2', hash: 'SHA-256', salt: roundSalt, iterations: PBKDF2_ROUND_ITERATIONS,
+      }, key, 256));
+    }
+    return `v2$${hex(material)}`;
+  }
+  const key = await crypto.subtle.importKey('raw', material, 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations }, key, 256);
   return hex(new Uint8Array(bits));
 }
 function validPassword(password) { return typeof password === 'string' && password.length >= 10 && password.length <= 128 && new TextEncoder().encode(password).byteLength <= 256; }
@@ -719,7 +736,7 @@ async function handler(request, env) {
   }
 }
 
-export { analyzeImage, analyze, setupPassword };
+export { analyzeImage, analyze, setupPassword, passwordHash };
 export default {
   fetch: handler,
   async scheduled(_event, env) {

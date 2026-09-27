@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import worker, { analyze, setupPassword } from '../worker/index.js';
+import worker, { analyze, setupPassword, passwordHash } from '../worker/index.js';
 
 const account = {
   account_id: '12345', activated_at: Date.now(), tier: 'PRO', role: 'user',
@@ -140,9 +140,20 @@ test('password setup updates account and replaces session in one D1 transaction'
   assert.equal(result.passwordConfigured, true);
   assert.equal(statements.length, 3);
   assert.match(statements[0].sql, /UPDATE accounts SET password_hash/);
+  assert.equal(statements[0].args[2], 400_000);
+  assert.match(statements[0].args[0], /^v2\$[0-9a-f]{64}$/);
   assert.match(statements[1].sql, /INSERT INTO sessions/);
   assert.match(statements[2].sql, /DELETE FROM sessions.*token_hash !=/s);
   assert.equal(statements[1].args[3], verified.account_id);
+});
+
+test('password hashing is stable across 400,000 chained iterations', async () => {
+  const salt = '0123456789abcdef0123456789abcdef';
+  const hash = await passwordHash('long-test-password-123', salt);
+  assert.match(hash, /^v2\$[0-9a-f]{64}$/);
+  assert.equal(await passwordHash('long-test-password-123', salt), hash);
+  assert.notEqual(await passwordHash('other-test-password-123', salt), hash);
+  assert.match(await passwordHash('legacy-password', salt, 100_000), /^[0-9a-f]{64}$/);
 });
 
 test('password setup does not return a token when the transaction fails', async () => {
