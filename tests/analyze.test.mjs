@@ -180,3 +180,24 @@ test('login initializes the rate-limit table before querying it', async () => {
   assert.match(queries[1], /CREATE INDEX IF NOT EXISTS login_attempts_key_created/);
   assert.match(queries[2], /SELECT COUNT\(\*\) AS total FROM login_attempts/);
 });
+
+test('custom domain serves site assets and accepts its API origin', async () => {
+  const served = [];
+  const env = {
+    SITE_ORIGIN: 'https://losolslaoaosd.github.io',
+    DB: {},
+    ASSETS: { fetch(request) { served.push(new URL(request.url).pathname); return new Response('site'); } },
+  };
+  const site = await worker.fetch(new Request('https://bluefinplus.site/app/'), env);
+  assert.equal(await site.text(), 'site');
+  assert.deepEqual(served, ['/app/']);
+  const config = await worker.fetch(new Request('https://bluefinplus.site/api/config', {
+    headers: { Origin: 'https://bluefinplus.site' },
+  }), env);
+  assert.equal(config.status, 200);
+  assert.equal(config.headers.get('Access-Control-Allow-Origin'), 'https://bluefinplus.site');
+  const oldOrigin = await worker.fetch(new Request('https://worker.example/api/config', {
+    headers: { Origin: 'https://losolslaoaosd.github.io' },
+  }), env);
+  assert.equal(oldOrigin.status, 200);
+});

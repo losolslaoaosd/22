@@ -28,8 +28,11 @@ function ensureLoginAttempts(env) {
 }
 const OWNER_CODE_PATTERN = /^(?:[0-9a-f]{64}|[0-9]{10,16})$/;
 
+function allowedOrigin(origin, env) {
+  return Boolean(origin && (origin === env.SITE_ORIGIN || origin === 'https://bluefinplus.site'));
+}
 function cors(origin, env) {
-  return origin && origin === env.SITE_ORIGIN ? {
+  return allowedOrigin(origin, env) ? {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
@@ -612,8 +615,10 @@ async function handler(request, env) {
   const origin = request.headers.get('Origin');
   const headers = cors(origin, env);
   const route = new URL(request.url).pathname;
-  if (request.method === 'OPTIONS') return new Response(null, { status: origin && origin === env.SITE_ORIGIN ? 204 : 403, headers });
-  if (origin && origin !== env.SITE_ORIGIN && route !== '/api/postback') return error(403, 'FORBIDDEN_ORIGIN', 'Недопустимый источник');
+  if ((request.method === 'GET' || request.method === 'HEAD') && !route.startsWith('/api/') && route !== '/go' && env.ASSETS)
+    return env.ASSETS.fetch(request);
+  if (request.method === 'OPTIONS') return new Response(null, { status: allowedOrigin(origin, env) ? 204 : 403, headers });
+  if (origin && !allowedOrigin(origin, env) && route !== '/api/postback') return error(403, 'FORBIDDEN_ORIGIN', 'Недопустимый источник');
   if (route === '/api/config' && request.method === 'GET') return json({
     referralUrl: env.REFERRAL_URL || 'https://bdclick.app/smart/site',
     attributionConfigured: Boolean(env.PARTNER_API_KEY && env.POSTBACK_SECRET && env.DB),

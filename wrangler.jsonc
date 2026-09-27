@@ -4,6 +4,17 @@
   "main": "worker/index.js",
   "compatibility_date": "2026-09-25",
   "keep_vars": true,
+  "routes": [
+    { "pattern": "bluefinplus.site", "custom_domain": true }
+  ],
+  "build": {
+    "command": "npm run build:site"
+  },
+  "assets": {
+    "directory": "./dist-site",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
   "d1_databases": [
     {
       "binding": "DB",
