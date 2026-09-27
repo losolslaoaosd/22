@@ -8,6 +8,11 @@ const OWNER_ACCOUNT = '__blufin_owner__';
 const UNLIMITED_ACCOUNT = '99105';
 const ACCOUNT_FIELDS = 'account_id, registered_at, verified_at, activated_at, qualified_deposit_cents, tier, limit_cycle_started_at, limit_cycle_reset_at, signals_used_in_cycle, credits_spent_in_cycle, role, password_hash, password_salt, password_iterations, must_change_password, session_version';
 const PASSWORD_ITERATIONS = 310_000;
+const LOGIN_ATTEMPTS_SCHEMA = `CREATE TABLE IF NOT EXISTS login_attempts (
+  key_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS login_attempts_key_created ON login_attempts(key_hash, created_at DESC);`;
 const OWNER_CODE_PATTERN = /^(?:[0-9a-f]{64}|[0-9]{10,16})$/;
 
 function cors(origin, env) {
@@ -238,7 +243,14 @@ async function login(request, env) {
   const keys = await Promise.all([`ip:${ip}`, `id:${normalizedId}`].map(value => sha256(`BLUFIN_LOGIN:${env.POSTBACK_SECRET || env.ADMIN_ACCESS_CODE}:${value}`)));
   const windowStart = Date.now() - 15 * 60_000;
   for (const key of keys) {
-    const count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
+    let count;
+    try {
+      count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
+    } catch (cause) {
+      if (!/no such table:\s*login_attempts/i.test(String(cause?.message))) throw cause;
+      await env.DB.exec(LOGIN_ATTEMPTS_SCHEMA);
+      count = await env.DB.prepare('SELECT COUNT(*) AS total FROM login_attempts WHERE key_hash = ? AND created_at >= ?').bind(key, windowStart).first();
+    }
     if (count.total >= 5) throw httpError(429, 'LOGIN_LIMIT', 'Слишком много попыток. Попробуйте через 15 минут.');
   }
   const account = normalizedId === 'invalid' ? null : await env.DB.prepare(`SELECT ${ACCOUNT_FIELDS} FROM accounts WHERE account_id = ?`).bind(normalizedId).first();
@@ -688,6 +700,7 @@ export default {
   fetch: handler,
   async scheduled(_event, env) {
     const now = Date.now();
+    await env.DB.exec(LOGIN_ATTEMPTS_SCHEMA);
     await env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE expires_at < ?').bind(now),
       env.DB.prepare('DELETE FROM claim_attempts WHERE created_at < ?').bind(now - DAY),
