@@ -190,6 +190,93 @@ body[data-auth="active"].sidebar-collapsed .app-shell { padding-left: 110px; }
 .settings-list button:hover { background: #ffffff08; }
 .account-level, .account-info, .account-security { background: #101a2b; border-color: var(--line); box-shadow: none; }
 
+/* Keep the public landing compact and let the product message lead. */
+.landing { padding-top: 0; }
+.hero-grid {
+  min-height: clamp(400px, 58svh, 500px);
+  grid-template-columns: minmax(0, 1.12fr) minmax(300px, .88fr);
+  align-items: center;
+  gap: clamp(18px, 3vw, 40px);
+}
+.hero-copy { max-width: 700px; padding: 0; transform: none; }
+.hero-copy h1 {
+  max-width: none;
+  margin: 0 0 17px;
+  font-size: clamp(42px, 4.2vw, 58px);
+  font-weight: 620;
+  line-height: 1.04;
+  letter-spacing: -.055em;
+  text-wrap: balance;
+}
+.hero-copy h1 span { display: block; }
+.hero-lead { max-width: 35rem; margin: 0; color: #aeb7c7; font-size: 16px; line-height: 1.55; }
+.hero-actions { display: flex; max-width: none; margin: 24px 0 0; }
+.hero-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+.hero-cta .hero-submit { min-height: 48px; padding: 0 21px; gap: 14px; font-size: 14px; }
+.hero-register-link { min-height: 44px; padding: 0; color: #bdc5d2; font-size: 13px; font-weight: 550; }
+.hero-register-link:hover { color: #fff; }
+.hero-person, .hero-amounts { display: none !important; }
+.hero-visual { height: 100%; min-height: 0; opacity: .22; overflow: hidden; }
+.hero-visual::after { display: none; }
+.hero-chart-art { inset: 8% -10% 0; opacity: .68; }
+.hero-candles { opacity: .3; filter: grayscale(1) brightness(.78) contrast(.9); mix-blend-mode: screen; }
+.hero-growth path { filter: none; opacity: .38; }
+.hero-art { inset: 0; opacity: .18; }
+.public-levels { max-width: 1080px; margin: 8px auto 68px; }
+.public-levels h2 { margin: 7px 0 4px; font-size: clamp(23px, 2.5vw, 30px); font-weight: 580; letter-spacing: -.04em; }
+.public-levels > p { max-width: 620px; color: var(--secondary); font-size: 13px; line-height: 1.5; }
+.public-levels .level-cards {
+  display: flex;
+  gap: 0;
+  margin-top: 18px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-color: #ffffff36 transparent;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.public-levels .level-card {
+  flex: 1 0 190px;
+  min-height: 0;
+  padding: 16px 18px 17px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-top: 2px solid var(--level-color);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  scroll-snap-align: start;
+}
+.public-levels .level-card:first-child { border-left: 0; }
+.public-levels .level-card:hover { background: #ffffff06; transform: none; }
+.public-levels .level-card h3 { font-size: 12px; }
+.public-levels .level-card .level-price { margin: 13px 0 4px; font-size: 15px; }
+.public-levels .level-card .level-extra { margin-top: 12px; padding-top: 10px; }
+.public-levels .level-card .level-info { width: 20px; height: 20px; }
+
+@media (max-width: 760px) {
+  .hero-grid { display: block; min-height: 0; position: relative; padding: 40px 0 28px; }
+  .hero-copy { position: relative; z-index: 2; padding: 0; }
+  .hero-copy h1 { max-width: none; font-size: clamp(38px, 10vw, 48px); margin: 0 0 14px; }
+  .hero-lead { max-width: 29rem; font-size: 14px; }
+  .hero-actions { margin-top: 20px; }
+  .hero-cta { gap: 10px 18px; }
+  .hero-visual { display: block; position: absolute; z-index: 0; top: 16px; right: -22px; width: 58%; height: 230px; min-height: 0; opacity: .12; }
+  .hero-chart-art { inset: 0 -12% -8%; }
+  .hero-art { display: block; opacity: .1; }
+  .public-levels { margin: 15px auto 52px; }
+  .public-levels .level-cards { margin-top: 14px; }
+  .public-levels .level-card { flex: 0 0 min(82vw, 320px); padding: 17px 16px; }
+  .public-levels .level-card:first-child { border-left: 0; }
+}
+
+@media (max-width: 390px) {
+  .hero-grid { padding-top: 32px; }
+  .hero-copy h1 { font-size: 38px; }
+  .hero-cta .hero-submit { min-height: 46px; }
+}
+
 @media (max-width: 900px) {
   body[data-auth="active"] .app-shell, body[data-auth="active"].sidebar-collapsed .app-shell { padding: 0 18px; }
   .app-sidebar, body[data-auth="active"] .app-sidebar { display: none; }
