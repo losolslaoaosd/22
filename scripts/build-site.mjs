@@ -8,7 +8,7 @@ const files = [
   'index.html',
   'account/index.html', 'app/index.html', 'owner/index.html',
   'pages-config.js', 'app.js', 'blufin-ui.js',
-  'styles.css', 'liquid.css', 'blufin-ui.css', 'theme.css', 'premium.css', 'ui-system.css',
+  'styles.css', 'liquid.css', 'blufin-ui.css', 'theme.css', 'premium.css', 'ui-system.css', 'apple.css',
   'favicon.svg', 'hero-bluefin.png', 'chart-candles.png',
   'icon-fast.png', 'icon-deep.png', 'icon-maximum.png',
   '03-Manrope-Bold.ttf', '04-Manrope-ExtraBold.ttf', '05-Manrope-ExtraLight.ttf',

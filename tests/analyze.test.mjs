@@ -22,6 +22,7 @@ function dbMock() {
       return {
         bind(...args) {
           return {
+            sql, args,
             run: async () => { writes.push({ sql, args }); return { meta: { changes: 1 } }; },
             first: async () => account,
           };
@@ -317,4 +318,83 @@ test('custom domain serves site assets and accepts its API origin', async () => 
     headers: { Origin: 'https://losolslaoaosd.github.io' },
   }), env);
   assert.equal(oldOrigin.status, 200);
+});
+
+test('deep links serve the app shell without redirecting or changing the address', async () => {
+  const served = [];
+  const env = { ASSETS: { fetch(request) { served.push(new URL(request.url).pathname); return new Response('app'); } } };
+  for (const path of ['/login/', '/history/', '/history/123e4567-e89b-12d3-a456-426614174000/', '/level/', '/settings/']) {
+    const response = await worker.fetch(new Request(`https://bluefinplus.site${path}`), env);
+    assert.equal(await response.text(), 'app');
+  }
+  assert.deepEqual(served, Array(5).fill('/index.html'));
+});
+
+test('legacy bearer session moves to HttpOnly cookie and logout clears it', async () => {
+  const token = 'a'.repeat(64);
+  const queries = [];
+  const env = { DB: { prepare(sql) { queries.push(sql); return { bind() { return {
+    first: async () => account,
+    run: async () => ({ meta: { changes: 1 } }),
+  }; } }; } } };
+  const migrated = await worker.fetch(new Request('https://bluefinplus.site/api/auth/session', {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, Origin: 'https://bluefinplus.site' },
+  }), env);
+  assert.equal(migrated.status, 200);
+  assert.equal((await migrated.json()).token, undefined);
+  assert.match(migrated.headers.get('Set-Cookie'), /^blufin_session=aaaa.*HttpOnly; Secure; SameSite=Lax/);
+  const current = await worker.fetch(new Request('https://bluefinplus.site/api/me', {
+    headers: { Cookie: `blufin_session=${token}` },
+  }), env);
+  assert.equal((await current.json()).status, 'active');
+  const logout = await worker.fetch(new Request('https://bluefinplus.site/api/auth/logout', {
+    method: 'POST', headers: { Cookie: `blufin_session=${token}` },
+  }), env);
+  assert.match(logout.headers.get('Set-Cookie'), /Max-Age=0/);
+  assert.ok(queries.some(sql => sql.startsWith('DELETE FROM sessions')));
+});
+
+test('history is scoped, filtered and paged, with a direct detail route', async () => {
+  const token = 'b'.repeat(64);
+  const id = '123e4567-e89b-12d3-a456-426614174000';
+  const rows = Array.from({ length: 13 }, (_, index) => ({
+    id: index ? `123e4567-e89b-12d3-a456-${String(index).padStart(12, '0')}` : id,
+    asset: 'EUR/USD', mode: 'Fast', created_at: Date.now(), signal_expires_at: null,
+    signal_duration_seconds: 180, result_json: JSON.stringify({ verdict: 'UP', pair: 'EUR/USD', image_preview: image }),
+  }));
+  const statements = [];
+  const env = { DB: { prepare(sql) { return { bind(...args) { statements.push({ sql, args }); return {
+    first: async () => sql.includes('FROM sessions') ? account : rows[0],
+    all: async () => ({ results: rows }),
+  }; } }; } } };
+  const list = await worker.fetch(new Request('https://bluefinplus.site/api/history?page=2&mode=Fast&direction=UP&q=EUR', {
+    headers: { Cookie: `blufin_session=${token}` },
+  }), env);
+  const data = await list.json();
+  assert.equal(data.analyses.length, 12);
+  assert.equal(data.hasMore, true);
+  assert.equal(data.analyses[0].preview, null);
+  assert.equal(data.analyses[0].result.image_preview, undefined);
+  assert.deepEqual(statements.at(-1).args, [account.account_id, 'Fast', 'UP', '%EUR%', 24]);
+  const detail = await worker.fetch(new Request(`https://bluefinplus.site/api/history/${id}`, {
+    headers: { Cookie: `blufin_session=${token}` },
+  }), env);
+  const detailData = await detail.json();
+  assert.equal(detailData.analysis.id, id);
+  assert.equal(detailData.analysis.preview, image);
+  assert.deepEqual(statements.at(-1).args, [account.account_id, id]);
+});
+
+test('a successful analysis stores only its small preview alongside the result', async () => {
+  const { db, writes } = dbMock();
+  const req = new Request('https://worker.example/api/analyze', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image, preview: image, mode: 'Fast', expiry: 3 }),
+  });
+  const result = await withFetch(async () => response('completed', analysis),
+    () => analyze(req, { DB: db, OPENAI_API_KEY: 'test' }, account));
+  assert.equal(result.preview, image);
+  const saved = writes.find(write => write.sql === 'BATCH').statements[1];
+  assert.equal(JSON.parse(saved.args[1]).image_preview, image);
+  assert.doesNotMatch(saved.sql, /image_preview\s*=/);
 });

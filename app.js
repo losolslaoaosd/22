@@ -1,29 +1,26 @@
 const $ = selector => document.querySelector(selector);
 const SESSION_KEY = 'blufin_session';
-const state = { status: 'guest', role: null, accountId: null, account: null, file: null, mode: 'Fast', expiry: 3, config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY) };
-function storeSession(token, persistent = true) {
-  if (persistent) { localStorage.setItem(SESSION_KEY, token); sessionStorage.removeItem(SESSION_KEY); }
-  else { sessionStorage.setItem(SESSION_KEY, token); localStorage.removeItem(SESSION_KEY); }
-}
+const state = { status: 'loading', role: null, accountId: null, account: null, file: null, mode: 'Fast', expiry: 3, config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY), historyItems: [], historyPage: 0, historyQuery: '', historyFilters: {}, historyLoading: false };
 function removeSession() { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); }
-const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'account', 'owner-stats-view'];
+const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'history', 'level', 'account', 'settings', 'owner-stats-view'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 const fallbackLevels = [
   { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#8994A7' },
-  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#648DDE' },
-  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#9B83D6' },
+  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#4266A6' },
+  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#788FB8' },
   { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#C96D76' },
   { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#D5B967' },
 ];
 function levels() { return state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels; }
 function renderLevelTrack() {
   const current = levels().findIndex(level => level.id === state.account?.tier);
-  for (const id of ['dashboard-level-track', 'account-level-track']) {
+  for (const id of ['dashboard-level-track', 'account-level-track', 'level-view-track']) {
     const track = $(`#${id}`); if (!track) continue;
     track.replaceChildren(...levels().map((level, index) => {
       const item = document.createElement('div');
       item.className = `track-step ${index < current ? 'completed' : index === current ? 'current' : 'future'}`;
+      item.style.setProperty('--track-color', level.color || '#8994A7');
       item.setAttribute('aria-current', index === current ? 'step' : 'false');
       const dot = document.createElement('span'); dot.className = 'track-dot'; dot.textContent = index < current ? '✓' : String(index + 1);
       const label = document.createElement('strong'); label.textContent = level.id;
@@ -36,7 +33,7 @@ function renderLevels() {
   const cards = levels().map(level => {
     const card = document.createElement('article');
     card.className = 'level-card'; card.dataset.tier = level.id;
-    card.style.setProperty('--level-color', fallbackLevels.find(item => item.id === level.id)?.color || '#8994A7');
+    card.style.setProperty('--level-color', level.color || '#8994A7');
     const title = document.createElement('h3'); title.textContent = level.id;
     const info = document.createElement('button'); info.type = 'button'; info.className = 'level-info';
     info.dataset.levelInfo = level.id; info.setAttribute('aria-label', `Подробнее об уровне ${level.id}`); info.textContent = '?';
@@ -53,6 +50,10 @@ function renderLevels() {
   });
   $('#public-level-cards').replaceChildren(...cards);
   $('#activation-levels').replaceChildren(...cards.map(card => card.cloneNode(true)));
+  const costs = state.config?.aiModes || { Fast: { cost: 10 }, Deep: { cost: 100 }, Maximum: { cost: 500 } };
+  $('#faq-modes').textContent = `FAST даёт краткий разбор (${costs.Fast.cost} AI Credits, с BASE); DEEP анализирует структуру и альтернативный сценарий (${costs.Deep.cost}, с PLUS); MAXIMUM даёт наиболее полный разбор данных изображения (${costs.Maximum.cost}, с PRO).`;
+  $('#faq-levels').textContent = `Уровни определяют режимы и лимиты на 24 часа: ${levels().map(level => `${level.id} — ${level.signalLimit ?? 'безлимит'} сигналов и ${level.creditsLimit} AI Credits`).join('; ')}. Депозиты учитываются суммарно.`;
+  $('#faq-credits').textContent = `AI Credits расходуются за успешный анализ: FAST ${costs.Fast.cost}, DEEP ${costs.Deep.cost}, MAXIMUM ${costs.Maximum.cost}. Остаток и время обновления индивидуального 24-часового периода показаны в аккаунте. Неудачный запрос не списывает Credits.`;
 }
 function openLevelDetails(id) {
   const list = levels();
@@ -103,9 +104,15 @@ function updateActivation() {
   $('#deposit-progress-bar').value = Math.min(100, 100 * amount / next.minDeposit);
 }
 
-const siteRoot = new URL(window.location.pathname.replace(/(?:app|owner|account)\/(?:index\.html)?$|index\.html$/, ''), window.location.origin);
-const section = window.location.pathname.match(/\/(app|owner|account)\/(?:index\.html)?$/)?.[1] || null;
-function sectionUrl(name) { return new URL(`${name}/`, siteRoot).href; }
+const siteRoot = new URL('/', window.location.origin);
+const routes = { landing: '/', login: '/login/', register: '/register/', access: '/verify/', 'password-setup': '/password-setup/', deposit: '/deposit/', dashboard: '/app/', history: '/history/', level: '/level/', account: '/account/', settings: '/settings/', 'owner-stats-view': '/owner/' };
+function routePath(view, recordId) { return view === 'history-detail' ? `/history/${encodeURIComponent(recordId)}/` : routes[view] || '/'; }
+function locationView() {
+  const path = window.location.pathname.replace(/index\.html$/, '').replace(/\/$/, '') || '/';
+  const detail = /^\/history\/([a-f0-9-]{36})$/.exec(path);
+  if (detail) return { view: 'history-detail', recordId: detail[1] };
+  return { view: Object.keys(routes).find(name => routes[name].replace(/\/$/, '') === path) || 'landing' };
+}
 function isOwner() { return ['admin', 'owner'].includes(state.role); }
 function money(cents) { return `$${((cents || 0) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}`; }
 function updateCycleTime() {
@@ -235,6 +242,7 @@ function updateModes() {
     card.setAttribute('aria-disabled', String(!unlocked));
     card.querySelector('.mode-lock').classList.toggle('hidden', unlocked);
   }
+  $('#mode-select').firstChild.textContent = `${state.mode.toUpperCase()} AI · ${state.config?.aiModes?.[state.mode]?.cost || { Fast: 10, Deep: 100, Maximum: 500 }[state.mode]} AI Credits `;
 }
 const modeDetails = {
   Fast: { power: 30, intro: 'Краткий разбор видимых данных скриншота.', points: ['Пара, цена и таймфрейм', 'Тренд и структура', 'Волатильность', 'Краткий вывод по свечам'] },
@@ -265,68 +273,76 @@ function disableRegistration() {
 function moscow(date = new Date(), withSeconds = false) {
   return new Intl.DateTimeFormat('ru-RU', { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', ...(withSeconds ? { second: '2-digit' } : {}) }).format(date);
 }
-function show(view, historyMode = 'replace') {
-  if (historyMode === 'push' && window.history.state?.blufinView !== view)
-    window.history.pushState({ ...window.history.state, blufinView: view }, '', window.location.href);
-  else if (historyMode === 'replace')
-    window.history.replaceState({ ...window.history.state, blufinView: view }, '', window.location.href);
-  for (const name of views) $(`#${name}`).classList.toggle('hidden', name !== view);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+function show(view, historyMode = 'replace', recordId = null) {
+  const visibleView = view === 'history-detail' ? 'history' : view;
+  const url = routePath(view, recordId);
+  if (historyMode === 'push' && window.location.pathname !== url) window.history.pushState(null, '', url);
+  else if (historyMode === 'replace' && window.location.pathname !== url) window.history.replaceState(null, '', url);
+  for (const name of views) $(`#${name}`)?.classList.toggle('hidden', name !== visibleView);
+  document.body.dataset.view = visibleView;
+  document.body.dataset.auth = state.status === 'active' ? 'active' : 'public';
+  document.body.dataset.owner = String(isOwner());
+  $('#auth-loading')?.classList.add('hidden');
+  $('#global-message').classList.add('hidden');
+  if (!['history', 'history-detail'].includes(view)) window.scrollTo({ top: 0, behavior: 'instant' });
   if (state.polling) { clearInterval(state.polling); state.polling = null; }
   if (view === 'deposit') state.polling = setInterval(() => refreshSession(false), 10_000);
   $('#owner-stats-link').classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
   $('#menu-terminal').classList.toggle('hidden', state.status !== 'active' || view === 'dashboard');
   $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
-  $('#menu-login').classList.toggle('hidden', Boolean(state.token));
-  $('#menu-logout').classList.toggle('hidden', !state.token);
-  $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
+  $('#menu-settings').classList.toggle('hidden', state.status !== 'active' || view === 'settings');
+  $('#menu-login').classList.toggle('hidden', state.status === 'active');
+  $('#menu-logout').classList.toggle('hidden', state.status === 'guest');
+  $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account', 'level'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
   $('#header-upgrade')?.classList.toggle('hidden', state.status !== 'active' || isOwner() || state.account?.tier === 'ULTRA');
   $('#header-account')?.classList.toggle('hidden', state.status !== 'active');
   $('#header-owner')?.classList.toggle('hidden', !isOwner());
   $('#account-widget').classList.toggle('hidden', state.status !== 'active');
   $('#account-chip').classList.add('hidden');
-
   $('#site-menu').classList.add('hidden');
   $('#site-menu-toggle').setAttribute('aria-expanded', 'false');
+  for (const item of document.querySelectorAll('[data-route]')) {
+    const active = item.dataset.route === visibleView;
+    item.classList.toggle('active', active);
+    if (active) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
+  }
+  $('#view-title').textContent = { dashboard: 'AI Анализ', history: 'История', level: 'Уровень', account: 'Профиль', settings: 'Настройки', 'owner-stats-view': 'Владелец' }[visibleView] || '';
   if (view === 'owner-stats-view' && isOwner()) { refreshOwnerStats(); refreshOwnerUsers(false); }
-  if (view === 'dashboard') { updateTerminalAccount(); restoreLatest(); }
+  if (view === 'dashboard') updateTerminalAccount();
   if (view === 'account') { updateAccountPage(); renderLevelTrack(); }
+  if (view === 'level') updateLevelPage();
+  if (view === 'history' || view === 'history-detail') {
+    if (!state.historyItems.length) loadHistory(false);
+    else renderHistory();
+    if (view === 'history-detail') openHistoryDetail(recordId);
+    else closeHistoryDetail();
+  }
   if (view === 'password-setup') $('#setup-account-id').textContent = state.accountId || '';
   if (view === 'deposit') updateActivation();
 }
-function navigate(view) { show(view, 'push'); }
-function canRestoreView(view) {
-  if (!section && ['landing', 'login', 'register', 'access'].includes(view)) return true;
-  if (view === 'password-setup') return state.status !== 'guest' && state.account?.passwordConfigured === false;
-  if (view === 'deposit') return state.status === 'deposit';
-  if (view === 'dashboard') return state.status === 'active' && section === 'app';
-  if (view === 'account') return state.status === 'active' && section === 'account';
-  return view === 'owner-stats-view' && state.status === 'active' && section === 'owner' && isOwner();
-}
-window.addEventListener('popstate', event => {
-  if (canRestoreView(event.state?.blufinView)) show(event.state.blufinView, 'none');
-  else routeFromStatus();
-});
-function routeFromStatus() {
+function navigate(view, recordId = null) { show(view, 'push', recordId); }
+function routeFromStatus(historyMode = 'replace') {
+  const { view, recordId } = locationView();
+  if (state.status === 'loading') return;
   if (state.status !== 'guest' && state.role !== 'admin' && state.account?.passwordConfigured === false)
-    return show('password-setup');
-  if (state.account?.mustChangePassword) {
-    if (section && section !== 'account') return window.location.replace(sectionUrl('account'));
-    return show('account');
-  }
+    return show('password-setup', historyMode);
+  if (state.account?.mustChangePassword) return show('account', historyMode);
   if (state.status === 'active') {
-    if (section === 'owner' && !isOwner()) return window.location.replace(sectionUrl('app'));
-    if (!section) return window.location.replace(sectionUrl('app'));
-    return show(section === 'owner' ? 'owner-stats-view' : section === 'account' ? 'account' : 'dashboard');
+    if (view === 'owner-stats-view' && !isOwner()) return show('dashboard', historyMode);
+    if (['landing', 'login', 'register', 'access', 'password-setup', 'deposit'].includes(view)) return show('dashboard', historyMode);
+    return show(view, historyMode, recordId);
   }
-  if (state.status === 'deposit') return section ? window.location.replace(siteRoot.href) : show('deposit');
-  show(section ? 'login' : 'landing');
+  if (state.status === 'deposit') {
+    return show(['deposit', 'access'].includes(view) ? view : 'deposit', historyMode);
+  }
+  return show(['landing', 'login', 'register', 'access'].includes(view) ? view : 'login', historyMode);
 }
+window.addEventListener('popstate', () => routeFromStatus('replace'));
 async function api(url, options = {}) {
   if (staticPreview) throw new Error('Доступ откроется после подключения Cloudflare Workers. Сейчас доступен только просмотр сайта.');
   let response;
   try {
-    response = await fetch(`${apiBase}${url}`, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
+    response = await fetch(`${apiBase}${url}`, { ...options, credentials: 'include', headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}), ...(options.headers || {}) } });
   } catch {
     throw Object.assign(new Error('Соединение прервалось. Проверьте интернет и повторите попытку.'), { code: 'NETWORK_ERROR' });
   }
@@ -468,9 +484,8 @@ async function openOwnerUser(accountId) {
 }
 async function enterOwnerCode(code) {
   const result = await api('/api/admin/login', { method: 'POST', body: JSON.stringify({ code }) });
-  state.token = result.token; state.status = 'active'; state.role = 'admin'; state.accountId = null;
+  state.token = null; removeSession(); state.status = 'active'; state.role = 'admin'; state.accountId = null;
   state.account = { status: 'active', role: 'admin', tier: 'ULTRA', modes: ['Fast', 'Deep', 'Maximum'] }; state.latestResult = null;
-  storeSession(result.token, false);
   $('#account-id').value = '';
   await refreshSession(false);
   routeFromStatus();
@@ -493,14 +508,14 @@ $('#owner-code-form')?.addEventListener('submit', async event => {
   }
 });
 function acceptAuth(result) {
-  state.token = result.token;
-  storeSession(result.token, result.role !== 'admin');
+  state.token = null;
+  removeSession();
   state.status = result.status;
   state.role = result.role || 'user';
   state.accountId = result.accountId || null;
   state.account = result;
   state.latestResult = null;
-  if (!section && result.passwordConfigured === false && result.role !== 'admin') navigate('password-setup');
+  if (result.passwordConfigured === false && result.role !== 'admin') navigate('password-setup');
   else routeFromStatus();
 }
 function clearAuth() {
@@ -508,15 +523,10 @@ function clearAuth() {
   removeSession();
   state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
   state.resultTimer = null; showTerminal('empty');
-  if (section) window.location.replace(siteRoot.href);
-  else routeFromStatus();
+  state.historyItems = [];
+  show('landing', 'replace');
 }
 async function refreshSession(navigate = true, preserveHistory = false) {
-  if (!state.token && apiBase) {
-    state.status = 'guest'; state.accountId = null; state.role = null; state.account = null;
-    if (navigate) routeFromStatus();
-    return { status: 'guest' };
-  }
   try {
     const account = await api('/api/me');
     if (account.status === 'guest') { state.token = null; removeSession(); }
@@ -532,6 +542,7 @@ async function refreshSession(navigate = true, preserveHistory = false) {
     return account;
   } catch {
     if (!navigate) $('#deposit-message').textContent = 'Не удалось проверить статус. Повторите попытку чуть позже.';
+    return null;
   }
 }
 function message(node, text, isError = true) {
@@ -543,9 +554,13 @@ function message(node, text, isError = true) {
   node.textContent = text;
 }
 async function logoutCurrent() {
-  const request = state.token && !staticPreview ? api('/api/auth/logout', { method: 'POST', keepalive: true }).catch(() => {}) : Promise.resolve();
-  clearAuth();
-  await request;
+  try {
+    if (!staticPreview) await api('/api/auth/logout', { method: 'POST' });
+    clearAuth();
+  } catch (error) {
+    $('#global-message').textContent = `Не удалось выйти: ${error.message}. Повторите попытку.`;
+    $('#global-message').classList.remove('hidden');
+  }
 }
 function showAnalysisError(error) {
   const screenshotIssue = ['SCREENSHOT_INCOMPLETE', 'INVALID_IMAGE', 'IMAGE_DECODE_FAILED'].includes(error.code);
@@ -584,6 +599,7 @@ function setFile(file) {
   $('#image-preview').classList.remove('hidden');
   $('#empty-upload').classList.add('hidden');
   $('#analysis-error').classList.add('hidden');
+  $('#dashboard').classList.add('has-file');
 }
 async function imageDataUrl(file) {
   const heic = /\.(heic|heif)$/i.test(file.name) || /^image\/hei[cf](?:-sequence)?$/i.test(file.type);
@@ -615,7 +631,7 @@ async function imageDataUrl(file) {
     if (!width || !height) throw Object.assign(new Error('Изображение пустое или повреждено.'), { code: 'IMAGE_DECODE_FAILED' });
     const scale = Math.min(1, 3200 / Math.max(width, height));
     const canvas = document.createElement('canvas');
-    const maxLength = 16_000_000; // Up to 12 MB of decoded pixels, with Base64 overhead.
+    const maxLength = 15_900_000; // Leave room for the small history preview in the JSON request.
     for (const ratio of [1, .9, .8, .7, .6]) {
       canvas.width = Math.max(1, Math.round(width * scale * ratio));
       canvas.height = Math.max(1, Math.round(height * scale * ratio));
@@ -641,6 +657,8 @@ async function imageDataUrl(file) {
 function showTerminal(section) {
   for (const [name, id] of Object.entries({ empty: 'terminal-empty', processing: 'terminal-processing', result: 'terminal-result' }))
     $(`#${id}`).classList.toggle('hidden', name !== section);
+  $('#dashboard').dataset.analysisState = section;
+  window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: section }));
 }
 function beginProcessing(mode) {
   const steps = {
@@ -673,6 +691,9 @@ function renderResult(data, scroll = false) {
   const r = data.result;
   const actionable = Boolean(data.signalExpiresAt);
   const panel = $('#terminal-result');
+  const preview = data.preview || (state.file && state.previewUrl) || null;
+  $('#result-preview-open').classList.toggle('hidden', !preview);
+  if (preview) $('#result-preview').src = preview;
 
   panel.classList.remove('expired');
   const direction = $('#signal-hero');
@@ -727,7 +748,131 @@ async function restoreLatest() {
       renderResult({ ...latest, serverTime: history.serverTime });
   } catch { /* A missing history must not block a new analysis. */ }
 }
+function updateLevelPage() {
+  const account = state.account;
+  if (!account) return;
+  const current = levels().find(level => level.id === account.tier);
+  const next = levels().find(level => level.id === account.nextLevel);
+  $('#level-current').textContent = account.tier || 'BASE';
+  $('#level-current').style.color = current?.color || '#8994A7';
+  $('#level-next').textContent = next ? `До ${next.id} осталось ${money(Math.max(0, next.minDeposit - account.depositCents))}` : 'Максимальный уровень открыт';
+  $('#level-progress').classList.toggle('hidden', !next);
+  if (next) { $('#level-progress').max = next.minDeposit; $('#level-progress').value = account.depositCents; }
+  renderLevelTrack();
+  const benefits = $('#level-benefits'); benefits.replaceChildren();
+  for (const level of levels()) {
+    const row = uiNode('button', '', 'level-benefit'); row.type = 'button'; row.dataset.levelInfo = level.id;
+    row.style.setProperty('--level-color', level.color);
+    row.append(uiNode('strong', level.id), uiNode('span', `${level.signalLimit ?? '∞'} сигналов · ${level.creditsLimit} AI Credits · ${level.availableAiModes.map(mode => mode.toUpperCase()).join(' / ')}`), uiNode('span', '›'));
+    benefits.append(row);
+  }
+  $('#level-upgrade').classList.toggle('hidden', !next || isOwner());
+}
+function historyParams(page) {
+  const params = new URLSearchParams({ page: String(page) });
+  if (state.historyQuery) params.set('q', state.historyQuery);
+  for (const [name, value] of Object.entries(state.historyFilters)) if (value) params.set(name, value);
+  if (state.historyFilters.date) params.set('tz', String(new Date().getTimezoneOffset()));
+  return params;
+}
+async function loadHistory(more = false) {
+  if (state.historyLoading && more) return;
+  const requestId = (state.historyRequestId || 0) + 1;
+  state.historyRequestId = requestId;
+  state.historyLoading = true;
+  const page = more ? state.historyPage + 1 : 0;
+  if (!more) { state.historyItems = []; $('#history-list').textContent = 'Загружаем историю…'; }
+  $('#history-more').disabled = true;
+  try {
+    const data = await api(`/api/history?${historyParams(page)}`);
+    if (requestId !== state.historyRequestId) return;
+    if (page === 0) state.historyItems = [];
+    state.historyItems.push(...data.analyses);
+    state.historyPage = page;
+    state.historyHasMore = data.hasMore;
+    renderHistory();
+  } catch (error) {
+    if (requestId !== state.historyRequestId) return;
+    if (!more) $('#history-list').textContent = `Не удалось загрузить историю: ${error.message}`;
+    else $('#history-more').textContent = 'Повторить загрузку';
+  } finally {
+    if (requestId === state.historyRequestId) { state.historyLoading = false; $('#history-more').disabled = false; }
+  }
+}
+function renderHistory() {
+  const list = $('#history-list'); list.replaceChildren();
+  if (!state.historyItems.length) {
+    const empty = uiNode('div', '', 'history-empty');
+    empty.append(uiNode('span', '◷', 'empty-icon'), uiNode('h2', 'Анализов пока нет'), uiNode('p', 'Загрузите график, чтобы получить первый результат.'));
+    const action = uiNode('button', 'Начать анализ', 'button primary'); action.type = 'button'; action.addEventListener('click', () => navigate('dashboard')); empty.append(action); list.append(empty);
+  }
+  for (const item of state.historyItems) {
+    const row = uiNode('button', '', 'history-row'); row.type = 'button'; row.dataset.historyId = item.id;
+    const direction = item.result?.verdict === 'DOWN' ? 'Вниз' : 'Вверх';
+    const meta = uiNode('span', new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.created_at)), 'history-date');
+    const main = uiNode('span', '', 'history-row-main');
+    main.append(uiNode('strong', item.result?.pair || item.asset || 'График'), uiNode('span', direction, item.result?.verdict === 'DOWN' ? 'direction-down' : 'direction-up'), uiNode('small', `${(item.mode || 'Fast').toUpperCase()} AI`));
+    row.append(meta, main, uiNode('span', item.result?.final_conclusion || item.result?.reason || 'Открыть анализ', 'history-summary'));
+    if (locationView().recordId === item.id) row.classList.add('selected');
+    list.append(row);
+  }
+  $('#history-more').classList.toggle('hidden', !state.historyHasMore);
+  $('#history-more').textContent = 'Показать ещё';
+  const chips = $('#history-chips'); chips.replaceChildren();
+  for (const [name, value] of Object.entries({ q: state.historyQuery, ...state.historyFilters })) if (value) chips.append(uiNode('span', `${{ q: 'Поиск', date: 'Дата', mode: 'Режим', direction: 'Направление' }[name]}: ${value}`));
+}
+function closeHistoryDetail() {
+  $('#history-detail').classList.add('hidden');
+  $('#history').classList.remove('detail-open');
+}
+async function openHistoryDetail(id) {
+  if (!id) return;
+  const panel = $('#history-detail'); const body = $('#history-detail-body');
+  panel.classList.remove('hidden'); $('#history').classList.add('detail-open');
+  body.textContent = 'Загружаем анализ…';
+  try {
+    const item = (await api(`/api/history/${encodeURIComponent(id)}`)).analysis;
+    if (locationView().recordId !== id) return;
+    body.replaceChildren();
+    if (item.preview) {
+      const image = document.createElement('img'); image.src = item.preview; image.alt = 'Миниатюра графика'; image.className = 'history-preview';
+      image.addEventListener('click', () => showPreview(item.preview)); body.append(image);
+    }
+    body.append(uiNode('span', new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' }).format(new Date(item.created_at)), 'history-date'));
+    body.append(uiNode('h2', `${item.result?.pair || item.asset} · ${item.result?.verdict === 'DOWN' ? 'Вниз' : 'Вверх'}`));
+    body.append(uiNode('p', `${(item.mode || 'Fast').toUpperCase()} AI · ${item.result?.timeframe || 'Таймфрейм не определён'} · ${item.result?.current_price || 'Цена не определена'}`, 'history-detail-meta'));
+    body.append(uiNode('p', item.result?.final_conclusion || item.result?.reason || '', 'history-conclusion'));
+    const dl = uiNode('dl', '', 'history-report');
+    for (const [field, label] of Object.entries({ trend: 'Тренд', structure: 'Структура', momentum: 'Momentum', volatility: 'Volatility', historical_match: 'Historical Match', ai_consensus: 'AI Consensus', key_levels: 'Уровни', invalidation: 'Отмена сценария', limitations: 'Ограничения' })) {
+      if (!item.result?.[field]) continue;
+      const row = uiNode('div'); row.append(uiNode('dt', label), uiNode('dd', item.result[field])); dl.append(row);
+    }
+    body.append(dl);
+    renderHistory();
+  } catch (error) { if (locationView().recordId === id) body.textContent = `Не удалось открыть анализ: ${error.message}`; }
+}
+function showPreview(source) {
+  $('#preview-full').src = source;
+  $('#preview-dialog').showModal();
+}
+function createPreview(source) {
+  return new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scale = Math.min(1, 480 / Math.max(image.width, image.height));
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+      const preview = canvas.toDataURL('image/jpeg', .62);
+      resolve(preview.length <= 120_000 ? preview : null);
+    };
+    image.onerror = () => resolve(null);
+    image.src = source;
+  });
+}
 async function init() {
+  showTerminal('empty');
   renderLevels();
   document.addEventListener('click', event => {
     const info = event.target.closest('[data-level-info]');
@@ -760,25 +905,71 @@ async function init() {
       disableRegistration();
     } else {
       for (const link of document.querySelectorAll('[data-registration-link]')) link.href = `${apiBase}/go`;
-      const depositLink = document.querySelector('#deposit a.button');
-      depositLink.href = `${apiBase}/go`;
+      document.querySelector('#deposit a.button').href = `${apiBase}/go`;
     }
-    await refreshSession(false, true);
-    const previousView = window.history.state?.blufinView;
-    if (performance.getEntriesByType('navigation')[0]?.type === 'back_forward' && canRestoreView(previousView))
-      show(previousView, 'none');
-    else routeFromStatus();
   } catch {
     disableRegistration();
     message($('#register-message'), 'Сервер проверки сейчас недоступен. Регистрация временно отключена.');
-    message($('#id-message'), 'Сервер проверки сейчас недоступен. Проверка ID временно отключена.', false);
-    show('landing');
   }
+  if (state.token) {
+    try { await api('/api/auth/session', { method: 'POST' }); }
+    catch { /* An expired legacy token cannot restore the session. */ }
+    state.token = null;
+    removeSession();
+  }
+  const session = staticPreview ? { status: 'guest' } : await refreshSession(false, true);
+  if (session) {
+    if (staticPreview) state.status = 'guest';
+    routeFromStatus();
+  } else {
+    $('#auth-loading').classList.remove('hidden');
+    $('#auth-retry').addEventListener('click', () => window.location.reload(), { once: true });
+    $('#auth-loading-message').textContent = 'Не удалось проверить сессию. Проверьте соединение и повторите.';
+    $('#auth-retry').classList.remove('hidden');
+  }
+  $('.brand').addEventListener('click', event => { event.preventDefault(); navigate(state.status === 'active' ? 'dashboard' : 'landing'); });
+  document.querySelectorAll('[data-route]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.route)));
+  $('#sidebar-collapse').addEventListener('click', () => {
+    const collapsed = document.body.classList.toggle('sidebar-collapsed');
+    $('#sidebar-collapse').setAttribute('aria-expanded', String(!collapsed));
+    $('#sidebar-collapse').setAttribute('aria-label', collapsed ? 'Развернуть панель' : 'Свернуть панель');
+  });
+  $('#settings-security').addEventListener('click', () => { navigate('account'); $('#account-security-anchor')?.scrollIntoView({ behavior: 'smooth' }); });
+  $('#level-upgrade').addEventListener('click', openUpgrade);
+  $('#history-list').addEventListener('click', event => {
+    const row = event.target.closest('[data-history-id]');
+    if (row) navigate('history-detail', row.dataset.historyId);
+  });
+  $('#history-more').addEventListener('click', () => loadHistory(true));
+  let historySearchTimer;
+  $('#history-search').addEventListener('input', event => {
+    clearTimeout(historySearchTimer);
+    historySearchTimer = setTimeout(() => { state.historyQuery = event.target.value.trim(); loadHistory(false); }, 250);
+  });
+  $('#history-filter-button').addEventListener('click', () => {
+    const open = $('#history-filters').classList.toggle('hidden') === false;
+    $('#history-filter-button').setAttribute('aria-expanded', String(open));
+  });
+  for (const [id, key] of [['history-date', 'date'], ['history-mode', 'mode'], ['history-direction', 'direction']])
+    $(`#${id}`).addEventListener('change', event => { state.historyFilters[key] = event.target.value; loadHistory(false); });
+  $('#history-clear').addEventListener('click', () => {
+    state.historyQuery = ''; state.historyFilters = {}; $('#history-search').value = '';
+    for (const id of ['history-date', 'history-mode', 'history-direction']) $(`#${id}`).value = '';
+    loadHistory(false);
+  });
+  for (const id of ['history-back', 'history-close']) $(`#${id}`).addEventListener('click', () => show('history', 'replace'));
+  $('#result-preview-open').addEventListener('click', () => showPreview($('#result-preview').src));
+  $('#preview-close').addEventListener('click', () => $('#preview-dialog').close());
+  $('#preview-dialog').addEventListener('click', event => { if (event.target.id === 'preview-dialog') event.target.close(); });
+  $('#mode-select').addEventListener('click', () => {
+    const list = $('#mode-options'); const expanded = list.classList.toggle('hidden') === false;
+    $('#mode-select').setAttribute('aria-expanded', String(expanded));
+  });
   $('#begin-button').addEventListener('click', () => navigate('register'));
   for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => navigate('login'));
   $('#header-upgrade')?.addEventListener('click', openUpgrade);
-  $('#header-account')?.addEventListener('click', () => window.location.assign(sectionUrl('account')));
-  $('#header-owner')?.addEventListener('click', () => window.location.assign(sectionUrl('owner')));
+  $('#header-account')?.addEventListener('click', () => navigate('account'));
+  $('#header-owner')?.addEventListener('click', () => navigate('owner-stats-view'));
   $('#login-first').addEventListener('click', () => navigate('register'));
   $('#forgot-password').addEventListener('click', () => $('#forgot-dialog').showModal());
   $('#close-forgot').addEventListener('click', () => $('#forgot-dialog').close());
@@ -820,10 +1011,11 @@ async function init() {
   $('#go-to-verification').addEventListener('click', () => navigate('access'));
   $('#back-to-registration').addEventListener('click', () => navigate('register'));
   $('#continue-activation').addEventListener('click', () => navigate('deposit'));
-  $('#owner-stats-link').addEventListener('click', () => window.location.assign(sectionUrl('owner')));
-  $('#menu-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
-  $('#menu-account').addEventListener('click', () => window.location.assign(sectionUrl('account')));
-  $('#account-back').addEventListener('click', () => window.location.assign(sectionUrl('app')));
+  $('#owner-stats-link').addEventListener('click', () => navigate('owner-stats-view'));
+  $('#menu-terminal').addEventListener('click', () => navigate('dashboard'));
+  $('#menu-account').addEventListener('click', () => navigate('account'));
+  $('#menu-settings').addEventListener('click', () => navigate('settings'));
+  $('#account-back').addEventListener('click', () => navigate('dashboard'));
   $('#account-upgrade').addEventListener('click', openUpgrade);
   $('#change-password-open').addEventListener('click', () => $('#change-password-dialog').showModal());
   $('#close-change-password').addEventListener('click', () => $('#change-password-dialog').close());
@@ -880,7 +1072,7 @@ async function init() {
   $('#close-upgrade').addEventListener('click', () => $('#upgrade-dialog').close());
   $('#upgrade-dialog').addEventListener('click', event => { if (event.target.id === 'upgrade-dialog') event.target.close(); });
   setInterval(updateCycleTime, 30_000);
-  $('#back-terminal').addEventListener('click', () => window.location.assign(sectionUrl('app')));
+  $('#back-terminal').addEventListener('click', () => navigate('dashboard'));
   $('#account-logout').addEventListener('click', logoutCurrent);
   $('#menu-logout').addEventListener('click', logoutCurrent);
   $('#logout-all').addEventListener('click', async () => {
@@ -996,14 +1188,16 @@ async function init() {
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
     state.previewUrl = null;
     $('#image-preview').classList.add('hidden'); $('#empty-upload').classList.remove('hidden');
+    $('#dashboard').classList.remove('has-file');
   });
   $('#mode-options').addEventListener('click', e => {
     const info = e.target.closest('[data-mode-info]'); if (info) return showModeDetails(info.dataset.modeInfo);
     const card = e.target.closest('[data-mode]'); if (!card) return;
     if (card.getAttribute('aria-disabled') === 'true') {
-      return message($('#analysis-error'), card.querySelector('.mode-lock').textContent);
+      navigate('level'); return;
     }
     state.mode = card.dataset.mode; updateModes(); $('#analysis-error').classList.add('hidden');
+    $('#mode-options').classList.add('hidden'); $('#mode-select').setAttribute('aria-expanded', 'false');
   });
   $('#toggle-analysis').addEventListener('click', () => {
     const hidden = $('#signal-analysis').classList.toggle('hidden');
@@ -1017,6 +1211,7 @@ async function init() {
     if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
     state.previewUrl = null; state.file = null; $('#chart-file').value = ''; $('#preview-img').removeAttribute('src');
     $('#image-preview').classList.add('hidden'); $('#empty-upload').classList.remove('hidden');
+    $('#dashboard').classList.remove('has-file');
     $('#analysis-error').classList.add('hidden'); showTerminal('empty');
     $('#dropzone').scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
@@ -1031,12 +1226,16 @@ async function init() {
     let sentAt = null;
     try {
       const image = await imageDataUrl(state.file);
+      const preview = await createPreview(image);
       imagePrepared();
       sentAt = Date.now();
-      const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, mode: state.mode, expiry: state.expiry }) });
+      const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, preview, mode: state.mode, expiry: state.expiry }) });
+      window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: 'done' }));
+      await new Promise(resolve => setTimeout(resolve, 330));
       renderResult(result, true);
       if (result.account) { state.account = result.account; updateTerminalAccount(); }
     } catch (error) {
+      window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: 'error' }));
       // If the network lost a completed response, recover the committed signal instead of charging for a retry.
       if (sentAt && ['NETWORK_ERROR', 'INVALID_SERVER_RESPONSE'].includes(error.code)) {
         try {
@@ -1056,5 +1255,4 @@ async function init() {
     } finally { button.disabled = false; button.innerHTML = 'НАЧАТЬ АНАЛИЗ <span aria-hidden="true">↗</span>'; }
   });
 }
-if (section && !state.token) $('#login').classList.remove('hidden');
 init();
