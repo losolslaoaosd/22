@@ -10,7 +10,7 @@ const files = [
   'pages-config.js', 'app.js', 'blufin-ui.js', 'i18n.js', 'locales/ru.js', 'locales/en.js',
   'styles.css', 'blufin-ui.css', 'still.css',
   'fonts/golos-text-latin.woff2', 'fonts/golos-text-cyrillic.woff2', 'fonts/OFL.txt',
-  'favicon.svg', 'hero-bluefin.png', 'chart-candles.png',
+  'favicon.svg', 'favicon.ico', 'favicon.png', 'apple-touch-icon.png', 'hero-bluefin.png', 'chart-candles.png',
   'icon-fast.png', 'icon-deep.png', 'icon-maximum.png',
   '03-Manrope-Bold.ttf', '04-Manrope-ExtraBold.ttf', '05-Manrope-ExtraLight.ttf',
   '06-Manrope-Medium.ttf', '07-Manrope-Regular.ttf', '08-Manrope-SemiBold.ttf',
