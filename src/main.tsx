@@ -1,9 +1,8 @@
 import { createRoot } from "react-dom/client"
 import { flushSync } from "react-dom"
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
-import { ChartNoAxesCombined, History, Gem, CircleUserRound, Settings, ShieldCheck, Upload, ChevronLeft, ChevronDown, Pause, Play, Info, X, Zap, Layers, Scan } from "lucide-react"
+import { ChartNoAxesCombined, History, Gem, CircleUserRound, Home, ShieldCheck, Upload, Pause, Play, Info, X, Zap, Layers, BrainCircuit } from "lucide-react"
 import LatticeLoader from "@/components/LatticeLoader"
-import SilkWavesBackground from "@/components/SilkWavesBackground"
 import { tr, useLanguage } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import "./style.css"
@@ -55,8 +54,10 @@ function LandingAccess() {
   </div>
 }
 
-function HeroBackground() {
+// Original filament field; no proprietary registry code is bundled.
+function FilamentField() {
   useLanguage()
+  const canvas = useRef<HTMLCanvasElement>(null)
   const [paused, setPaused] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches)
   useEffect(() => {
     const media = matchMedia("(prefers-reduced-motion: reduce)")
@@ -65,7 +66,45 @@ function HeroBackground() {
     update()
     return () => media.removeEventListener("change", update)
   }, [])
-  return <><SilkWavesBackground paused={paused} /><button type="button" className="motion-control" onClick={() => setPaused(!paused)} aria-label={tr(paused ? "still.play" : "still.pause")} title={tr(paused ? "still.play" : "still.pause")} aria-pressed={paused}>{paused ? <Play size={16} /> : <Pause size={16} />}</button></>
+  useEffect(() => {
+    const element = canvas.current, context = element?.getContext("2d")
+    if (!element || !context) return
+    let width = 0, height = 0, frame = 0, visible = true, last = 0
+    const draw = (time: number) => {
+      context.clearRect(0, 0, width, height)
+      const phase = paused ? .5 : time * .000045
+      for (let thread = 0; thread < 64; thread++) {
+        const n = thread / 63
+        context.beginPath()
+        for (let step = 0; step <= 100; step++) {
+          const p = step / 100, x = width * (.2 + p * .95)
+          const bend = Math.sin(p * 5.8 + n * 1.8 + phase) * height * .1
+          const ripple = Math.sin(p * 14 + n * 3 - phase) * height * .024
+          const y = height * (.95 - p * .87 + (n - .5) * .58) + bend + ripple
+          if (step === 0) context.moveTo(x, y); else context.lineTo(x, y)
+        }
+        const opacity = .08 + Math.pow(Math.sin(n * Math.PI), 5) * .25
+        context.strokeStyle = thread % 5 === 0 ? `rgba(169,191,232,${opacity})` : `rgba(198,203,212,${opacity * .65})`
+        context.lineWidth = thread % 5 === 0 ? .8 : .5
+        context.stroke()
+      }
+    }
+    const loop = (time: number) => {
+      if (!paused && visible && !document.hidden && time - last > 33) { draw(time); last = time }
+      frame = requestAnimationFrame(loop)
+    }
+    const resize = () => {
+      const rect = element.getBoundingClientRect(); width = rect.width; height = rect.height
+      const ratio = Math.min(devicePixelRatio || 1, 1.5)
+      element.width = width * ratio; element.height = height * ratio
+      context.setTransform(ratio, 0, 0, ratio, 0, 0); draw(performance.now())
+    }
+    const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(element)
+    const intersection = new IntersectionObserver(entries => { visible = entries[0].isIntersecting }); intersection.observe(element)
+    resize(); if (!paused) frame = requestAnimationFrame(loop)
+    return () => { cancelAnimationFrame(frame); resizeObserver.disconnect(); intersection.disconnect() }
+  }, [paused])
+  return <><canvas ref={canvas} className="filament-canvas" aria-hidden="true" /><button type="button" className="motion-control" onClick={() => setPaused(!paused)} aria-label={tr(paused ? "still.play" : "still.pause")} title={tr(paused ? "still.play" : "still.pause")} aria-pressed={paused}>{paused ? <Play size={16} /> : <Pause size={16} />}</button></>
 }
 function mount(element: Element, component: ReactNode) { flushSync(() => createRoot(element).render(component)) }
 function AnalysisLoader() {
@@ -83,16 +122,16 @@ function AnalysisLoader() {
 }
 const loader = document.querySelector("#lattice-loader")
 if (loader) mount(loader, <AnalysisLoader />)
-const navIcons = { dashboard: ChartNoAxesCombined, history: History, level: Gem, account: CircleUserRound, settings: Settings, "owner-stats-view": ShieldCheck }
+const navIcons = { landing: Home, dashboard: ChartNoAxesCombined, history: History, level: Gem, account: CircleUserRound, "owner-stats-view": ShieldCheck }
 document.querySelectorAll<HTMLButtonElement>("[data-route]").forEach(button => {
   const Icon = navIcons[button.dataset.route as keyof typeof navIcons]
-  if (!Icon || !button.closest(".app-sidebar, .mobile-tabs")) return
+  if (!Icon || !button.closest(".workspace-nav, .mobile-tabs")) return
   const existing = button.querySelector("span[aria-hidden]")
-  if (existing) existing.remove(); else if (button.firstChild?.nodeType === Node.TEXT_NODE) button.firstChild.remove()
+  if (existing) existing.remove()
   const host = document.createElement("span"); host.className = "nav-icon"; host.setAttribute("aria-hidden", "true")
   button.prepend(host); mount(host, <Icon size={20} strokeWidth={1.7} />)
 })
-const iconTargets = [[".upload-icon", Upload], ["#sidebar-collapse", ChevronLeft], ["#mode-select > span", ChevronDown], [".mode-choice:nth-child(1) .mode-icon", Zap], [".mode-choice:nth-child(2) .mode-icon", Layers], [".mode-choice:nth-child(3) .mode-icon", Scan]] as const
+const iconTargets = [[".upload-icon", Upload], ["#screenshot-help > span", Info], ["#selected-mode-info > span:first-child", Info], [".mode-choice:nth-child(1) .mode-icon", Zap], [".mode-choice:nth-child(2) .mode-icon", Layers], [".mode-choice:nth-child(3) .mode-icon", BrainCircuit]] as const
 for (const [selector, Icon] of iconTargets) {
   const element = document.querySelector(selector)
   if (element) { element.replaceChildren(); mount(element, <Icon size={20} strokeWidth={1.7} />) }
@@ -108,4 +147,4 @@ if (navigation) mount(navigation, <PublicNavigation />)
 const actions = document.querySelector(".hero-actions")
 if (actions) { actions.replaceChildren(); mount(actions, <LandingAccess />) }
 const field = document.querySelector("#hero-field")
-if (field) mount(field, <HeroBackground />)
+if (field) mount(field, <FilamentField />)

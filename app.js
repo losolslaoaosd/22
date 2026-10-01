@@ -4,20 +4,17 @@ const locale = () => window.BluFinI18n.language === 'ru' ? 'ru-RU' : 'en-US';
 const SESSION_KEY = 'blufin_session';
 const state = { status: 'loading', role: null, accountId: null, account: null, file: null, mode: 'Fast', expiry: 3, config: null, polling: null, resultTimer: null, latestResult: null, dismissedResultId: null, clockOffset: 0, ownerFilter: 'all', ownerPage: 0, ownerUserId: null, token: localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY), historyItems: [], historyPage: 0, historyQuery: '', historyFilters: {}, historyLoading: false };
 function removeSession() { localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY); }
-const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'history', 'level', 'account', 'settings', 'owner-stats-view'];
+const views = ['landing', 'login', 'register', 'access', 'password-setup', 'deposit', 'dashboard', 'account', 'owner-stats-view'];
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 const fallbackLevels = [
-  { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#B2BDD0' },
-  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#5796FF' },
-  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#B58AFF' },
-  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#FF788B' },
-  { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#F6C75D' },
+  { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#8994A7' },
+  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#4266A6' },
+  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#788FB8' },
+  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#C96D76' },
+  { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#D5B967' },
 ];
-function levels() {
-  const configured = state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels;
-  return configured.map(level => ({ ...level, color: fallbackLevels.find(item => item.id === level.id)?.color || level.color }));
-}
+function levels() { return state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels; }
 function renderLevelTrack() {
   const current = levels().findIndex(level => level.id === state.account?.tier);
   for (const id of ['dashboard-level-track', 'account-level-track', 'level-view-track']) {
@@ -25,9 +22,9 @@ function renderLevelTrack() {
     track.replaceChildren(...levels().map((level, index) => {
       const item = document.createElement('div');
       item.className = `track-step ${index < current ? 'completed' : index === current ? 'current' : 'future'}`;
-      item.style.setProperty('--track-color', level.color || '#B2BDD0');
+      item.style.setProperty('--track-color', level.color || '#8994A7');
       item.setAttribute('aria-current', index === current ? 'step' : 'false');
-      const dot = document.createElement('span'); dot.className = 'track-dot'; dot.textContent = index < current ? '✓' : String(index + 1);
+      const dot = document.createElement('span'); dot.className = 'track-dot'; dot.setAttribute('aria-hidden', 'true'); dot.append(statusIcon(index <= current ? 'check' : 'lock'));
       const label = document.createElement('strong'); label.textContent = level.id;
       item.append(dot, label); return item;
     }));
@@ -38,7 +35,7 @@ function renderLevels() {
   const cards = levels().map(level => {
     const card = document.createElement('article');
     card.className = 'level-card'; card.dataset.tier = level.id;
-    card.style.setProperty('--level-color', level.color || '#B2BDD0');
+    card.style.setProperty('--level-color', level.color || '#8994A7');
     const title = document.createElement('h3'); title.textContent = level.id;
     const info = document.createElement('button'); info.type = 'button'; info.className = 'level-info';
     info.dataset.levelInfo = level.id; info.setAttribute('aria-label', t("d.1", level.id)); info.textContent = 'i';
@@ -88,30 +85,37 @@ function openLevelDetails(id) {
   for (const [label, value] of details) {
     const row = uiNode('div'); row.append(uiNode('dt', label), uiNode('dd', value)); listNode.append(row);
   }
-  box.append(uiNode('p', purpose, 'level-purpose'), listNode);
-  $('#level-dialog').style.setProperty('--level-color', fallbackLevels.find(item => item.id === id)?.color || '#B2BDD0');
+  box.append(listNode, uiNode('p', purpose));
+  $('#level-dialog').style.setProperty('--level-color', fallbackLevels.find(item => item.id === id)?.color || '#8994A7');
   $('#level-dialog').showModal();
 }
 function updateActivation() {
-  const note = $('#deposit-message');
-  setActivationMessage(note.dataset.messageKey || 'h.112', note.classList.contains('error'));
-}
-function setActivationMessage(key, isError = false) {
-  const note = $('#deposit-message');
-  note.dataset.messageKey = key;
-  note.classList.toggle('error', isError);
-  note.setAttribute('role', isError ? 'alert' : 'status');
-  note.setAttribute('aria-live', isError ? 'assertive' : 'polite');
-  note.textContent = t(key);
+  const amount = state.account?.depositCents || 0;
+  $('#deposit-progress').classList.toggle('hidden', amount <= 0);
+  if (amount <= 0) return;
+  const current = [...levels()].reverse().find(level => amount >= level.minDeposit);
+  const next = levels().find(level => amount < level.minDeposit);
+  $('#deposit-total').textContent = money(amount);
+  $('#deposit-tier').textContent = current?.id || t("d.30");
+  for (const id of ['deposit-next-row', 'deposit-remaining-row', 'deposit-progress-row'])
+    $(`#${id}`).classList.toggle('hidden', !next);
+  $('#deposit-max').classList.toggle('hidden', Boolean(next));
+  if (!next) return;
+  $('#deposit-next').textContent = next.id;
+  $('#deposit-remaining-label').textContent = t("d.31", next.id);
+  $('#deposit-remaining').textContent = money(next.minDeposit - amount);
+  $('#deposit-progress-label').textContent = `${money(amount)} / ${money(next.minDeposit)}`;
+  $('#deposit-progress-bar').value = Math.min(100, 100 * amount / next.minDeposit);
 }
 
 const siteRoot = new URL('/', window.location.origin);
-const routes = { landing: '/', login: '/login/', register: '/register/', access: '/verify/', 'password-setup': '/password-setup/', deposit: '/deposit/', dashboard: '/app/', history: '/history/', level: '/level/', account: '/account/', settings: '/settings/', 'owner-stats-view': '/owner/' };
-function routePath(view, recordId) { return view === 'history-detail' ? `/history/${encodeURIComponent(recordId)}/` : routes[view] || '/'; }
+const routes = { landing: '/', login: '/login/', register: '/register/', access: '/verify/', 'password-setup': '/password-setup/', deposit: '/deposit/', dashboard: '/app/', history: '/account/history/', level: '/account/levels/', account: '/account/', 'owner-stats-view': '/owner/' };
+function routePath(view, recordId) { return view === 'history-detail' ? `/account/history/${encodeURIComponent(recordId)}/` : routes[view] || '/'; }
 function locationView() {
   const path = window.location.pathname.replace(/index\.html$/, '').replace(/\/$/, '') || '/';
-  const detail = /^\/history\/([a-f0-9-]{36})$/.exec(path);
+  const detail = /^\/(?:account\/)?history\/([a-f0-9-]{36})$/.exec(path);
   if (detail) return { view: 'history-detail', recordId: detail[1] };
+  if (['/history', '/level', '/settings'].includes(path)) return { view: path === '/history' ? 'history' : path === '/level' ? 'level' : 'account' };
   return { view: Object.keys(routes).find(name => routes[name].replace(/\/$/, '') === path) || 'landing' };
 }
 function isOwner() { return ['admin', 'owner'].includes(state.role); }
@@ -131,7 +135,7 @@ function updateTerminalAccount() {
   const a = state.account;
   if (!a || a.status !== 'active') return;
   const rank = state.config?.levels?.findIndex(level => level.id === a.tier) + 1;
-  const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#B2BDD0';
+  const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#8994A7';
   $('#account-widget').style.setProperty('--tier-color', tint);
   $('#summary-tier').textContent = a.tier || 'BASE';
   $('#summary-credits').textContent = a.creditsTotal === null ? t("d.34") : `${a.creditsRemaining} AI Credits`;
@@ -200,12 +204,13 @@ function updateAccountPage() {
   const a = state.account;
   if (!a || a.status !== 'active') return;
   const level = levels().find(item => item.id === a.tier);
-  const tint = level?.color || '#B2BDD0';
+  const tint = level?.color || '#8994A7';
   $('#account-level-name').textContent = a.tier || t("d.38");
   $('#account-level-name').style.color = tint;
   $('#account-level-rank').textContent = isOwner() ? t("h.10") : t("d.39", levels().findIndex(item => item.id === a.tier) + 1);
   $('#account-id-value').textContent = a.accountId || t("d.51");
-  $('#account-verified').textContent = a.verifiedAt ? t("d.52") : t("d.53");
+  $('#account-verified').replaceChildren(statusIcon(a.verifiedAt ? 'check' : 'lock'), document.createTextNode(a.verifiedAt ? t('d.52') : t('d.53')));
+  $('#profile-access').replaceChildren(statusIcon('check'), document.createTextNode(t('mobile.active')));
   $('#account-registered').textContent = a.registeredAt ? new Intl.DateTimeFormat(locale(), { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(a.registeredAt)) : t("d.54");
   $('#account-total-deposits').textContent = money(a.depositCents);
   $('#account-credits').textContent = a.creditsTotal === null ? t("d.3") : `${a.creditsRemaining} / ${a.creditsTotal}`;
@@ -229,6 +234,7 @@ function updateAccountPage() {
   $('#change-password-open').classList.toggle('hidden', a.role === 'admin');
   $('#logout-all').classList.toggle('hidden', a.role === 'admin');
   $('#security-message').textContent = a.mustChangePassword ? t("d.55") : '';
+  if (a.mustChangePassword) $('#account-security-anchor').open = true;
 }
 function updateModes() {
   const allowed = state.account?.modes || [];
@@ -236,14 +242,14 @@ function updateModes() {
   for (const card of $('#mode-options').querySelectorAll('[data-mode]')) {
     const unlocked = allowed.includes(card.dataset.mode);
     const cost = state.config?.aiModes?.[card.dataset.mode]?.cost;
-    if (cost) card.querySelectorAll('span')[1].textContent = `${cost} AI Credits`;
+    if (cost) card.querySelector(':scope > span:not(.mode-icon)').textContent = `${cost} AI Credits`;
     card.classList.toggle('locked', !unlocked);
     card.classList.toggle('selected', state.mode === card.dataset.mode);
     card.setAttribute('aria-pressed', String(state.mode === card.dataset.mode));
     card.setAttribute('aria-disabled', String(!unlocked));
     card.querySelector('.mode-lock').classList.toggle('hidden', unlocked);
   }
-  $('#mode-select').firstChild.textContent = `${state.mode.toUpperCase()} AI · ${state.config?.aiModes?.[state.mode]?.cost || { Fast: 10, Deep: 100, Maximum: 500 }[state.mode]} AI Credits `;
+  $('#selected-mode-copy').textContent = `${state.mode.toUpperCase()} AI · ${state.config?.aiModes?.[state.mode]?.cost || { Fast: 10, Deep: 100, Maximum: 500 }[state.mode]} AI Credits`;
 }
 function modeDetails() { return {
   Fast: { power: 30, intro: t("d.56"), points: [t("d.57"), t("d.58"), t("d.59"), t("d.60")] },
@@ -275,7 +281,8 @@ function moscow(date = new Date(), withSeconds = false) {
   return new Intl.DateTimeFormat(locale(), { timeZone: 'Europe/Moscow', hour: '2-digit', minute: '2-digit', ...(withSeconds ? { second: '2-digit' } : {}) }).format(date);
 }
 function show(view, historyMode = 'replace', recordId = null) {
-  const visibleView = view === 'history-detail' ? 'history' : view;
+  const visibleView = ['history', 'history-detail', 'level', 'settings'].includes(view) ? 'account' : view;
+  if (view === 'settings') view = 'account';
   const url = routePath(view, recordId);
   if (historyMode === 'push' && window.location.pathname !== url) window.history.pushState(null, '', url);
   else if (historyMode === 'replace' && window.location.pathname !== url) window.history.replaceState(null, '', url);
@@ -291,7 +298,6 @@ function show(view, historyMode = 'replace', recordId = null) {
   $('#owner-stats-link').classList.toggle('hidden', !isOwner() || view === 'owner-stats-view');
   $('#menu-terminal').classList.toggle('hidden', state.status !== 'active' || view === 'dashboard');
   $('#menu-account').classList.toggle('hidden', state.status !== 'active' || view === 'account');
-  $('#menu-settings').classList.toggle('hidden', state.status !== 'active' || view === 'settings');
   $('#menu-login').classList.toggle('hidden', state.status === 'active');
   $('#menu-logout').classList.toggle('hidden', state.status === 'guest');
   $('#upgrade-link').classList.toggle('hidden', !['dashboard', 'account', 'level'].includes(view) || isOwner() || state.account?.tier === 'ULTRA');
@@ -307,21 +313,24 @@ function show(view, historyMode = 'replace', recordId = null) {
     item.classList.toggle('active', active);
     if (active) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
   }
-  $('#view-title').textContent = { dashboard: t("h.5"), history: t("h.6"), level: t("h.7"), account: t("h.8"), settings: t("h.9"), 'owner-stats-view': t("h.10") }[visibleView] || '';
   if (view === 'owner-stats-view' && isOwner()) { refreshOwnerStats(); refreshOwnerUsers(false); }
   if (view === 'dashboard') updateTerminalAccount();
-  if (view === 'account') { updateAccountPage(); renderLevelTrack(); }
-  if (view === 'level') updateLevelPage();
-  if (view === 'history' || view === 'history-detail') {
+  if (visibleView === 'account') {
+    updateAccountPage(); renderLevelTrack(); updateLevelPage();
+    if (view === 'level') { $('#profile-levels').open = true; requestAnimationFrame(() => $('#profile-levels').scrollIntoView({ block: 'start' })); }
     if (!state.historyItems.length) loadHistory(false);
     else renderHistory();
     if (view === 'history-detail') openHistoryDetail(recordId);
     else closeHistoryDetail();
+    if (view === 'history') requestAnimationFrame(() => $('#history').scrollIntoView({ block: 'start' }));
   }
   if (view === 'password-setup') $('#setup-account-id').textContent = state.accountId || '';
   if (view === 'deposit') updateActivation();
 }
-function navigate(view, recordId = null) { show(view, 'push', recordId); }
+function navigate(view, recordId = null) {
+  if (state.status !== 'active' && ['dashboard', 'account', 'history', 'history-detail', 'level', 'owner-stats-view'].includes(view)) return show(state.status === 'deposit' ? 'deposit' : 'login', 'push');
+  show(view, 'push', recordId);
+}
 function routeFromStatus(historyMode = 'replace') {
   const { view, recordId } = locationView();
   if (state.status === 'loading') return;
@@ -382,7 +391,7 @@ function dateLabel(timestamp) {
 }
 function tierBadge(tier) {
   const badge = uiNode('span', tier || t("h.168"), 'tier-badge');
-  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#B2BDD0');
+  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#8994A7');
   return badge;
 }
 async function refreshOwnerUsers(more = false) {
@@ -524,6 +533,7 @@ function acceptAuth(result) {
   else routeFromStatus();
 }
 function clearAuth() {
+  stopProcessing();
   state.token = null; state.status = 'guest'; state.role = null; state.accountId = null; state.account = null;
   removeSession();
   state.latestResult = null; if (state.resultTimer) clearInterval(state.resultTimer);
@@ -547,7 +557,7 @@ async function refreshSession(navigate = true, preserveHistory = false) {
     if (account.status === 'deposit') updateActivation();
     return account;
   } catch {
-    if (!navigate && state.status === 'deposit') setActivationMessage('d.109', true);
+    if (!navigate) $('#deposit-message').textContent = t("d.109");
     return null;
   }
 }
@@ -666,28 +676,64 @@ function showTerminal(section) {
   $('#dashboard').dataset.analysisState = section;
   window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: section }));
 }
-function beginProcessing(mode) {
-  const steps = {
-    Fast: [t("d.124"), t("d.125"), t("d.126"), t("d.127")],
-    Deep: [t("d.124"), t("d.128"), t("d.129"), t("d.130"), t("d.131"), t("d.132")],
-    Maximum: [t("d.124"), t("d.128"), t("d.133"), t("d.130"), t("d.134"), t("d.135"), t("d.136")],
-  }[mode];
-  $('#processing-mode').textContent = `${mode.toUpperCase()} AI ACTIVE`;
-  $('#processing-power').textContent = `${modeDetails()[mode].power}%`;
-  $('#processing-power-fill').style.width = `${modeDetails()[mode].power}%`;
-  $('#processing-steps').replaceChildren();
-  steps.forEach((label, index) => {
-    const item = document.createElement('li');
-    item.textContent = label;
-    if (index === 0) item.classList.add('current');
-    $('#processing-steps').append(item);
+function statusIcon(kind) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); svg.classList.add('status-icon');
+  const path = document.createElementNS(svg.namespaceURI, 'path');
+  path.setAttribute('d', kind === 'check' ? 'M20 6 9 17l-5-5' : 'M7 10V7a5 5 0 0 1 10 0v3 M6 10h12v11H6z');
+  svg.append(path); return svg;
+}
+function paintProcessing(progress, complete = false, failed = false) {
+  const items = [...$('#processing-steps').children];
+  const current = complete ? items.length : Math.min(items.length - 1, Math.floor(progress / 100 * items.length));
+  items.forEach((item, index) => {
+    const done = complete || index < current;
+    item.classList.toggle('done', done); item.classList.toggle('current', !complete && !failed && index === current);
+    if (index === current && !complete && !failed) item.setAttribute('aria-current', 'step'); else item.removeAttribute('aria-current');
+    item.querySelector('.processing-step-icon').replaceChildren(...(done ? [statusIcon('check')] : [document.createTextNode(String(index + 1).padStart(2,'0'))]));
+    item.querySelector('.processing-step-state').textContent = t(done ? 'mobile.completed' : index === current && !failed ? 'mobile.current' : 'mobile.pending');
   });
-  showTerminal('processing');
+  $('#processing-progress').value = progress;
+  $('#processing-percent').textContent = Math.floor(progress) + '%';
+  $('#processing-status').textContent = t(failed ? 'mobile.error' : complete ? 'mobile.done' : current === items.length - 1 ? 'mobile.wait' : 'mobile.working');
+  $('#terminal-processing').classList.toggle('processing-failed', failed);
+}
+function stopProcessing() {
+  clearInterval(state.processingTimer); state.processingTimer = null;
+}
+function beginProcessing(mode) {
+  stopProcessing();
+  const steps = {
+    Fast: [t('d.124'), t('d.125'), t('d.126'), t('d.127')],
+    Deep: [t('d.124'), t('d.128'), t('d.129'), t('d.130'), t('d.131'), t('d.132')],
+    Maximum: [t('d.124'), t('d.128'), t('d.133'), t('d.130'), t('d.134'), t('d.135'), t('d.136')],
+  }[mode];
+  state.processingMode = mode; state.processingProgress = 0;
+  $('#processing-mode').textContent = mode.toUpperCase() + ' AI';
+  $('#processing-power').textContent = modeDetails()[mode].power + '%';
+  $('#processing-power-fill').style.width = modeDetails()[mode].power + '%';
+  $('#processing-steps').replaceChildren(...steps.map(label => {
+    const item = uiNode('li');
+    item.append(uiNode('span', '', 'processing-step-icon'), uiNode('span', label, 'processing-step-label'), uiNode('small', '', 'processing-step-state'));
+    return item;
+  }));
+  paintProcessing(0); showTerminal('processing');
+  $('#signal-panel').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
 }
 function imagePrepared() {
-  const items = $('#processing-steps').children;
-  items[0]?.classList.replace('current', 'done');
-  items[1]?.classList.add('current');
+  state.processingProgress = 100 / $('#processing-steps').children.length;
+  paintProcessing(state.processingProgress);
+  const started = performance.now(), baseline = state.processingProgress;
+  const expected = { Fast: 14000, Deep: 26000, Maximum: 42000 }[state.processingMode];
+  state.processingTimer = setInterval(() => {
+    // This API returns a final result, not stage telemetry. Never imply completion before its response.
+    state.processingProgress = Math.min(94, baseline + (94 - baseline) * (1 - Math.exp(-(performance.now() - started) / (expected / 3))));
+    paintProcessing(state.processingProgress);
+  }, 200);
+}
+function finishProcessing(success) {
+  stopProcessing(); paintProcessing(success ? 100 : state.processingProgress, success, !success);
+  window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: success ? 'done' : 'error' }));
 }
 function renderResult(data, scroll = false) {
   if (!['UP', 'DOWN'].includes(data?.result?.verdict)) throw new Error(t("d.137"));
@@ -760,7 +806,7 @@ function updateLevelPage() {
   const current = levels().find(level => level.id === account.tier);
   const next = levels().find(level => level.id === account.nextLevel);
   $('#level-current').textContent = account.tier || 'BASE';
-  $('#level-current').style.color = current?.color || '#B2BDD0';
+  $('#level-current').style.color = current?.color || '#8994A7';
   $('#level-next').textContent = next ? t("d.144", next.id, money(Math.max(0, next.minDeposit - account.depositCents))) : t("h.18");
   $('#level-progress').classList.toggle('hidden', !next);
   if (next) { $('#level-progress').max = next.minDeposit; $('#level-progress').value = account.depositCents; }
@@ -886,7 +932,7 @@ function initDrawer() {
   document.getElementById('menu-backdrop')?.addEventListener('click', close);
   let wasOpen = false;
   const sync = () => {
-    const mobile = matchMedia('(max-width: 767px)').matches;
+    const mobile = matchMedia('(max-width: 1023px)').matches;
     const open = !menu.classList.contains('hidden');
     document.body.classList.toggle('menu-open', mobile && open);
     if (mobile && open) { menu.setAttribute('role', 'dialog'); menu.setAttribute('aria-modal', 'true'); }
@@ -896,11 +942,11 @@ function initDrawer() {
     wasOpen = open;
   };
   new MutationObserver(sync).observe(menu, { attributes: true, attributeFilter: ['class'] });
-  matchMedia('(max-width: 767px)').addEventListener('change', sync);
+  matchMedia('(max-width: 1023px)').addEventListener('change', sync);
   document.addEventListener('keydown', event => {
     if (menu.classList.contains('hidden')) return;
     if (event.key === 'Escape') { close(); toggle.focus(); }
-    if (event.key !== 'Tab' || !matchMedia('(max-width: 767px)').matches) return;
+    if (event.key !== 'Tab' || !matchMedia('(max-width: 1023px)').matches) return;
     const elements = [...menu.querySelectorAll('a[href], button:not([disabled])')].filter(el => el.getClientRects().length);
     const first = elements[0], last = elements.at(-1);
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
@@ -967,12 +1013,6 @@ async function init() {
   }
   $('.brand').addEventListener('click', event => { event.preventDefault(); navigate(state.status === 'active' ? 'dashboard' : 'landing'); });
   document.querySelectorAll('[data-route]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.route)));
-  $('#sidebar-collapse').addEventListener('click', () => {
-    const collapsed = document.body.classList.toggle('sidebar-collapsed');
-    $('#sidebar-collapse').setAttribute('aria-expanded', String(!collapsed));
-    $('#sidebar-collapse').setAttribute('aria-label', collapsed ? t("d.165") : t("h.11"));
-  });
-  $('#settings-security').addEventListener('click', () => { navigate('account'); $('#account-security-anchor')?.scrollIntoView({ behavior: 'smooth' }); });
   $('#level-upgrade').addEventListener('click', openUpgrade);
   $('#history-list').addEventListener('click', event => {
     const row = event.target.closest('[data-history-id]');
@@ -999,10 +1039,6 @@ async function init() {
   $('#result-preview-open').addEventListener('click', () => showPreview($('#result-preview').src));
   $('#preview-close').addEventListener('click', () => $('#preview-dialog').close());
   $('#preview-dialog').addEventListener('click', event => { if (event.target.id === 'preview-dialog') event.target.close(); });
-  $('#mode-select').addEventListener('click', () => {
-    const list = $('#mode-options'); const expanded = list.classList.toggle('hidden') === false;
-    $('#mode-select').setAttribute('aria-expanded', String(expanded));
-  });
   $('#begin-button').addEventListener('click', () => navigate('register'));
   for (const id of ['landing-login', 'register-login', 'menu-login']) $(`#${id}`)?.addEventListener('click', () => navigate('login'));
   $('#header-upgrade')?.addEventListener('click', openUpgrade);
@@ -1052,7 +1088,6 @@ async function init() {
   $('#owner-stats-link').addEventListener('click', () => navigate('owner-stats-view'));
   $('#menu-terminal').addEventListener('click', () => navigate('dashboard'));
   $('#menu-account').addEventListener('click', () => navigate('account'));
-  $('#menu-settings').addEventListener('click', () => navigate('settings'));
   $('#account-back').addEventListener('click', () => navigate('dashboard'));
   $('#account-upgrade').addEventListener('click', openUpgrade);
   $('#change-password-open').addEventListener('click', () => $('#change-password-dialog').showModal());
@@ -1190,16 +1225,14 @@ async function init() {
   });
   $('#check-deposit').addEventListener('click', async () => {
     const button = $('#check-deposit'); button.disabled = true;
-    button.setAttribute('aria-busy', 'true');
-    setActivationMessage('d.177');
+    $('#deposit-message').textContent = t("d.177");
     try {
       const account = await api('/api/activation/check', { method: 'POST' });
       state.account = account; state.status = account.status; state.accountId = account.accountId;
-      if (account.status === 'active') { setActivationMessage('h.112'); routeFromStatus(); }
-      else if (account.status === 'guest') routeFromStatus();
-      else setActivationMessage('d.178', true);
-    } catch { setActivationMessage('d.109', true); }
-    finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+      if (account.status === 'active') routeFromStatus();
+      else { updateActivation(); $('#deposit-message').textContent = t("d.178", money(account.depositCents)); }
+    } catch (error) { $('#deposit-message').textContent = error.message; }
+    button.disabled = false;
   });
   $('#close-mode').addEventListener('click', () => $('#mode-dialog').close());
   $('#mode-dialog').addEventListener('click', event => { if (event.target.id === 'mode-dialog') event.target.close(); });
@@ -1237,8 +1270,8 @@ async function init() {
       navigate('level'); return;
     }
     state.mode = card.dataset.mode; updateModes(); $('#analysis-error').classList.add('hidden');
-    $('#mode-options').classList.add('hidden'); $('#mode-select').setAttribute('aria-expanded', 'false');
   });
+  $('#selected-mode-info').addEventListener('click', () => showModeDetails(state.mode));
   $('#toggle-analysis').addEventListener('click', () => {
     const hidden = $('#signal-analysis').classList.toggle('hidden');
     $('#toggle-analysis').textContent = hidden ? t("h.223") : t("d.180");
@@ -1270,12 +1303,13 @@ async function init() {
       imagePrepared();
       sentAt = Date.now();
       const result = await api('/api/analyze', { method: 'POST', body: JSON.stringify({ image, preview, mode: state.mode, expiry: state.expiry, language: window.BluFinI18n.language }) });
-      window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: 'done' }));
+      if (!['UP', 'DOWN'].includes(result?.result?.verdict)) throw new Error(t('d.137'));
+      finishProcessing(true);
       await new Promise(resolve => setTimeout(resolve, 330));
       renderResult(result, true);
       if (result.account) { state.account = result.account; updateTerminalAccount(); }
     } catch (error) {
-      window.dispatchEvent(new CustomEvent('blufin:analysis-state', { detail: 'error' }));
+      finishProcessing(false);
       // If the network lost a completed response, recover the committed signal instead of charging for a retry.
       if (sentAt && ['NETWORK_ERROR', 'INVALID_SERVER_RESPONSE'].includes(error.code)) {
         try {
@@ -1311,6 +1345,5 @@ document.addEventListener('blufin:languagechange', () => {
     if (current.view === 'history-detail') openHistoryDetail(current.recordId);
   }
   const view = locationView().view;
-  $('#view-title').textContent = { dashboard: t('h.5'), history: t('h.6'), level: t('h.7'), account: t('h.8'), settings: t('h.9'), 'owner-stats-view': t('h.10') }[view] || '';
 });
 init();

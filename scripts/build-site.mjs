@@ -8,7 +8,7 @@ const files = [
   'index.html',
   'account/index.html', 'app/index.html', 'owner/index.html',
   'pages-config.js', 'app.js', 'blufin-ui.js', 'i18n.js', 'locales/ru.js', 'locales/en.js',
-  'styles.css', 'blufin-ui.css', 'still.css',
+  'styles.css', 'blufin-ui.css', 'still.css', 'mobile.css',
   'fonts/golos-text-latin.woff2', 'fonts/golos-text-cyrillic.woff2', 'fonts/OFL.txt',
   'favicon.svg', 'favicon.ico', 'favicon.png', 'apple-touch-icon.png', 'hero-bluefin.png', 'chart-candles.png',
   'icon-fast.png', 'icon-deep.png', 'icon-maximum.png',

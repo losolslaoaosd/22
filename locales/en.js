@@ -60,7 +60,7 @@ window.BLUFIN_MESSAGES.en = {
   "h.56": "FAST gives a concise review, DEEP examines structure and an alternative scenario in more detail, and MAXIMUM gives the fullest review of the visible chart. Access depends on your level.",
   "h.57": "What are AI Credits and when are they used?",
   "h.58": "AI Credits pay for chart analysis. They are charged only for a successful result; the limit resets 24 hours after the first successful analysis in the period.",
-  "h.59": "Create an account and check the available modes",
+  "h.59": "Ready to analyze a chart?",
   "h.60": "Create an account and explore the available modes.",
   "h.61": "Log in to BLUFIN+",
   "h.62": "Use your Binodex ID and the password created for BLUFIN+.",
@@ -108,12 +108,12 @@ window.BLUFIN_MESSAGES.en = {
   "h.104": "ACCESS ACTIVATION",
   "h.105": "Account found · ID verified",
   "h.106": "Activate access",
-  "h.107": "Make a deposit in Binodex, then select “Activate access”.",
+  "h.107": "Your BLUFIN+ level depends on your total confirmed Binodex deposits.",
   "h.108": "Deposits add up. You do not have to deposit the full amount at once.",
   "h.109": "PRO unlocked",
   "h.110": "Make a deposit",
   "h.111": "Activate access",
-  "h.112": "Access opens automatically once your deposit is confirmed.",
+  "h.112": "BASE requires a total of at least $20 in confirmed deposits.",
   "h.113": "Current level",
   "h.114": "Next level",
   "h.115": "Amount needed for next level",
@@ -354,7 +354,7 @@ window.BLUFIN_MESSAGES.en = {
   "d.106": "Finished",
   "d.107": "Show more",
   "d.108": "Loading data…",
-  "d.109": "Could not check access. Please try again.",
+  "d.109": "Could not check status. Try again shortly.",
   "d.110": "Could not log out: {0}. Please try again.",
   "d.111": "Could not read the chart data",
   "d.112": "Analysis did not finish",
@@ -423,7 +423,7 @@ window.BLUFIN_MESSAGES.en = {
   "d.175": "Go to login",
   "d.176": "Verify account <span aria-hidden=\"true\">→</span>",
   "d.177": "Checking status…",
-  "d.178": "Access is not active yet. Wait for your deposit to be confirmed.",
+  "d.178": "Access is not active yet. BASE requires at least $20 in confirmed deposits. Current total: {0}.",
   "d.179": "Pasted screenshot.png",
   "d.180": "Hide analysis",
   "d.181": "Upload a chart screenshot first.",
@@ -494,6 +494,22 @@ window.BLUFIN_MESSAGES.en = {
   "still.details": "Level details",
   "still.pause": "Pause background",
   "still.play": "Play background animation",
-  "still.features": "Level features",
-  "access.profileNote": "Confirmed deposits are counted together when determining your level."
+  "still.features": "Level features"
 };
+
+Object.assign(window.BLUFIN_MESSAGES.en, {
+  "mobile.home": "Home",
+  "mobile.levels": "Levels and available modes",
+  "mobile.active": "Access active",
+  "mobile.expiry": "Expiry",
+  "mobile.progress": "Estimated progress",
+  "mobile.working": "AI is processing your chart",
+  "mobile.wait": "Waiting for the AI result",
+  "mobile.done": "Analysis complete",
+  "mobile.error": "Analysis could not be completed",
+  "mobile.completed": "Complete",
+  "mobile.current": "In progress",
+  "mobile.pending": "Pending"
+});
+
+window.BLUFIN_MESSAGES.en['mobile.processingNote'] = "Analysis may take a little time. The result will appear here.";

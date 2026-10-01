@@ -15,8 +15,10 @@ function harness(pathname = '/') {
       setAttribute() {}, removeAttribute() {}, addEventListener() {},
       textContent: '',
       children: [],
-      append(child) { this.children.push(child); },
+      append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
+      querySelector(selector) { return this.children.find(child => child.className === selector.slice(1)); },
+      scrollIntoView() {},
     });
     return nodes.get(selector);
   };
@@ -33,13 +35,14 @@ function harness(pathname = '/') {
       replaceState(_state, _title, path) { entries[index] = path; location.pathname = path; },
     },
   };
-  const document = { body: { dataset: {} }, querySelector: element, querySelectorAll: () => [], addEventListener() {}, createElement: () => ({ classList: { add() {} } }) };
+  const document = { body: { dataset: {} }, querySelector: element, querySelectorAll: () => [], addEventListener() {},
+    createElement: () => element(Symbol()), createElementNS: () => element(Symbol()), createTextNode: text => ({ textContent: text }) };
   const context = vm.createContext({ window, document, localStorage: { getItem: () => null, removeItem() {} },
     sessionStorage: { getItem: () => null, removeItem() {} }, URL, setInterval: () => 1,
-    clearInterval() {}, clearTimeout() {}, CustomEvent });
+    clearInterval() {}, clearTimeout() {}, CustomEvent, requestAnimationFrame: () => 1, matchMedia: () => ({ matches: true }) });
   const source = readFileSync(new URL('../app.js', import.meta.url), 'utf8').replace(/\ninit\(\);\s*$/, '\n');
   vm.runInContext(source, context);
-  vm.runInContext('updateTerminalAccount = () => {}; updateAccountPage = () => {}; renderLevelTrack = () => {}; loadHistory = () => {}; renderHistory = () => {}; openHistoryDetail = () => {};', context);
+  vm.runInContext('updateTerminalAccount = () => {}; updateAccountPage = () => {}; updateLevelPage = () => {}; renderLevelTrack = () => {}; loadHistory = () => {}; renderHistory = () => {}; openHistoryDetail = () => {}; closeHistoryDetail = () => {};', context);
   return { context, location, element, back() { if (index > 0) { location.pathname = entries[--index]; listeners.popstate(); } },
     forward() { if (index < entries.length - 1) { location.pathname = entries[++index]; listeners.popstate(); } } };
 }
@@ -54,7 +57,7 @@ test('guest routes update the URL and browser Back/Forward restores the screen',
 
 test('protected routes do not reappear after logout and Back', () => {
   const app = harness('/app/');
-  vm.runInContext("state.status = 'active'; state.account = { status: 'active', tier: 'BASE' }; navigate('settings'); clearAuth();", app.context);
+  vm.runInContext("state.status = 'active'; state.account = { status: 'active', tier: 'BASE' }; navigate('account'); clearAuth();", app.context);
   assert.equal(app.location.pathname, '/');
   app.back();
   assert.equal(app.location.pathname, '/login/');
@@ -65,9 +68,10 @@ test('active account can move between analysis, history and profile with browser
   const app = harness('/app/');
   vm.runInContext("state.status = 'active'; state.account = { status: 'active', tier: 'BASE' }; show('dashboard'); navigate('history'); navigate('account');", app.context);
   assert.equal(app.location.pathname, '/account/');
-  app.back(); assert.equal(app.location.pathname, '/history/');
+  app.back(); assert.equal(app.location.pathname, '/account/history/');
+  assert.equal(vm.runInContext('document.body.dataset.view', app.context), 'account');
   app.back(); assert.equal(app.location.pathname, '/app/');
-  app.forward(); assert.equal(app.location.pathname, '/history/');
+  app.forward(); assert.equal(app.location.pathname, '/account/history/');
 });
 
 test('all AI modes can start the localized processing UI', () => {
