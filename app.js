@@ -8,13 +8,16 @@ const views = ['landing', 'login', 'register', 'access', 'password-setup', 'depo
 const apiBase = (window.BLUFIN_API_BASE || '').replace(/\/$/, '');
 const staticPreview = window.BLUFIN_STATIC_PREVIEW === true && !apiBase;
 const fallbackLevels = [
-  { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#8994A7' },
-  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#4266A6' },
-  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#788FB8' },
-  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#C96D76' },
-  { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#D5B967' },
+  { id: 'BASE', minDeposit: 2000, signalLimit: 3, creditsLimit: 30, availableAiModes: ['Fast'], color: '#B2BDD0' },
+  { id: 'PLUS', minDeposit: 5000, signalLimit: 10, creditsLimit: 300, availableAiModes: ['Fast', 'Deep'], color: '#5796FF' },
+  { id: 'PRO', minDeposit: 7500, signalLimit: 30, creditsLimit: 1000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#B58AFF' },
+  { id: 'ADVANCED', minDeposit: 10000, signalLimit: 70, creditsLimit: 3000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#FF788B' },
+  { id: 'ULTRA', minDeposit: 20000, signalLimit: null, creditsLimit: 10000, availableAiModes: ['Fast', 'Deep', 'Maximum'], color: '#F6C75D' },
 ];
-function levels() { return state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels; }
+function levels() {
+  const configured = state.config?.levels?.length === 5 ? state.config.levels : fallbackLevels;
+  return configured.map(level => ({ ...level, color: fallbackLevels.find(item => item.id === level.id)?.color || level.color }));
+}
 function renderLevelTrack() {
   const current = levels().findIndex(level => level.id === state.account?.tier);
   for (const id of ['dashboard-level-track', 'account-level-track', 'level-view-track']) {
@@ -22,7 +25,7 @@ function renderLevelTrack() {
     track.replaceChildren(...levels().map((level, index) => {
       const item = document.createElement('div');
       item.className = `track-step ${index < current ? 'completed' : index === current ? 'current' : 'future'}`;
-      item.style.setProperty('--track-color', level.color || '#8994A7');
+      item.style.setProperty('--track-color', level.color || '#B2BDD0');
       item.setAttribute('aria-current', index === current ? 'step' : 'false');
       const dot = document.createElement('span'); dot.className = 'track-dot'; dot.textContent = index < current ? '✓' : String(index + 1);
       const label = document.createElement('strong'); label.textContent = level.id;
@@ -35,7 +38,7 @@ function renderLevels() {
   const cards = levels().map(level => {
     const card = document.createElement('article');
     card.className = 'level-card'; card.dataset.tier = level.id;
-    card.style.setProperty('--level-color', level.color || '#8994A7');
+    card.style.setProperty('--level-color', level.color || '#B2BDD0');
     const title = document.createElement('h3'); title.textContent = level.id;
     const info = document.createElement('button'); info.type = 'button'; info.className = 'level-info';
     info.dataset.levelInfo = level.id; info.setAttribute('aria-label', t("d.1", level.id)); info.textContent = 'i';
@@ -85,27 +88,21 @@ function openLevelDetails(id) {
   for (const [label, value] of details) {
     const row = uiNode('div'); row.append(uiNode('dt', label), uiNode('dd', value)); listNode.append(row);
   }
-  box.append(listNode, uiNode('p', purpose));
-  $('#level-dialog').style.setProperty('--level-color', fallbackLevels.find(item => item.id === id)?.color || '#8994A7');
+  box.append(uiNode('p', purpose, 'level-purpose'), listNode);
+  $('#level-dialog').style.setProperty('--level-color', fallbackLevels.find(item => item.id === id)?.color || '#B2BDD0');
   $('#level-dialog').showModal();
 }
 function updateActivation() {
-  const amount = state.account?.depositCents || 0;
-  $('#deposit-progress').classList.toggle('hidden', amount <= 0);
-  if (amount <= 0) return;
-  const current = [...levels()].reverse().find(level => amount >= level.minDeposit);
-  const next = levels().find(level => amount < level.minDeposit);
-  $('#deposit-total').textContent = money(amount);
-  $('#deposit-tier').textContent = current?.id || t("d.30");
-  for (const id of ['deposit-next-row', 'deposit-remaining-row', 'deposit-progress-row'])
-    $(`#${id}`).classList.toggle('hidden', !next);
-  $('#deposit-max').classList.toggle('hidden', Boolean(next));
-  if (!next) return;
-  $('#deposit-next').textContent = next.id;
-  $('#deposit-remaining-label').textContent = t("d.31", next.id);
-  $('#deposit-remaining').textContent = money(next.minDeposit - amount);
-  $('#deposit-progress-label').textContent = `${money(amount)} / ${money(next.minDeposit)}`;
-  $('#deposit-progress-bar').value = Math.min(100, 100 * amount / next.minDeposit);
+  const note = $('#deposit-message');
+  setActivationMessage(note.dataset.messageKey || 'h.112', note.classList.contains('error'));
+}
+function setActivationMessage(key, isError = false) {
+  const note = $('#deposit-message');
+  note.dataset.messageKey = key;
+  note.classList.toggle('error', isError);
+  note.setAttribute('role', isError ? 'alert' : 'status');
+  note.setAttribute('aria-live', isError ? 'assertive' : 'polite');
+  note.textContent = t(key);
 }
 
 const siteRoot = new URL('/', window.location.origin);
@@ -134,7 +131,7 @@ function updateTerminalAccount() {
   const a = state.account;
   if (!a || a.status !== 'active') return;
   const rank = state.config?.levels?.findIndex(level => level.id === a.tier) + 1;
-  const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#8994A7';
+  const tint = fallbackLevels.find(level => level.id === a.tier)?.color || '#B2BDD0';
   $('#account-widget').style.setProperty('--tier-color', tint);
   $('#summary-tier').textContent = a.tier || 'BASE';
   $('#summary-credits').textContent = a.creditsTotal === null ? t("d.34") : `${a.creditsRemaining} AI Credits`;
@@ -203,7 +200,7 @@ function updateAccountPage() {
   const a = state.account;
   if (!a || a.status !== 'active') return;
   const level = levels().find(item => item.id === a.tier);
-  const tint = level?.color || '#8994A7';
+  const tint = level?.color || '#B2BDD0';
   $('#account-level-name').textContent = a.tier || t("d.38");
   $('#account-level-name').style.color = tint;
   $('#account-level-rank').textContent = isOwner() ? t("h.10") : t("d.39", levels().findIndex(item => item.id === a.tier) + 1);
@@ -385,7 +382,7 @@ function dateLabel(timestamp) {
 }
 function tierBadge(tier) {
   const badge = uiNode('span', tier || t("h.168"), 'tier-badge');
-  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#8994A7');
+  badge.style.setProperty('--tier-color', fallbackLevels.find(level => level.id === tier)?.color || '#B2BDD0');
   return badge;
 }
 async function refreshOwnerUsers(more = false) {
@@ -550,7 +547,7 @@ async function refreshSession(navigate = true, preserveHistory = false) {
     if (account.status === 'deposit') updateActivation();
     return account;
   } catch {
-    if (!navigate) $('#deposit-message').textContent = t("d.109");
+    if (!navigate && state.status === 'deposit') setActivationMessage('d.109', true);
     return null;
   }
 }
@@ -763,7 +760,7 @@ function updateLevelPage() {
   const current = levels().find(level => level.id === account.tier);
   const next = levels().find(level => level.id === account.nextLevel);
   $('#level-current').textContent = account.tier || 'BASE';
-  $('#level-current').style.color = current?.color || '#8994A7';
+  $('#level-current').style.color = current?.color || '#B2BDD0';
   $('#level-next').textContent = next ? t("d.144", next.id, money(Math.max(0, next.minDeposit - account.depositCents))) : t("h.18");
   $('#level-progress').classList.toggle('hidden', !next);
   if (next) { $('#level-progress').max = next.minDeposit; $('#level-progress').value = account.depositCents; }
@@ -1193,14 +1190,16 @@ async function init() {
   });
   $('#check-deposit').addEventListener('click', async () => {
     const button = $('#check-deposit'); button.disabled = true;
-    $('#deposit-message').textContent = t("d.177");
+    button.setAttribute('aria-busy', 'true');
+    setActivationMessage('d.177');
     try {
       const account = await api('/api/activation/check', { method: 'POST' });
       state.account = account; state.status = account.status; state.accountId = account.accountId;
-      if (account.status === 'active') routeFromStatus();
-      else { updateActivation(); $('#deposit-message').textContent = t("d.178", money(account.depositCents)); }
-    } catch (error) { $('#deposit-message').textContent = error.message; }
-    button.disabled = false;
+      if (account.status === 'active') { setActivationMessage('h.112'); routeFromStatus(); }
+      else if (account.status === 'guest') routeFromStatus();
+      else setActivationMessage('d.178', true);
+    } catch { setActivationMessage('d.109', true); }
+    finally { button.disabled = false; button.removeAttribute('aria-busy'); }
   });
   $('#close-mode').addEventListener('click', () => $('#mode-dialog').close());
   $('#mode-dialog').addEventListener('click', event => { if (event.target.id === 'mode-dialog') event.target.close(); });

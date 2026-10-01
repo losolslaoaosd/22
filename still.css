@@ -116,10 +116,11 @@ progress::-moz-progress-bar { background: var(--blue); }
 .pricing-heading h2 { max-width: 460px; margin: 0; font-size: 36px; line-height: 44px; font-weight: 500; }
 .pricing-heading p { max-width: 400px; margin: 0; font-size: 14px; line-height: 24px; color: var(--text-secondary); }
 .level-cards, .public-levels .level-cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 0; overflow: visible; }
-.level-card, .public-levels .level-card, .deposit-card .level-card { display: flex; position: relative; flex-direction: column; min-width: 0; min-height: 0; padding: 24px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: none; }
-.level-card::before { content: ''; width: 20px; height: 2px; background: var(--level-color); margin-bottom: 20px; }
-.level-card:hover { border-color: var(--line-hover); }
-.level-card h3 { margin: 0 0 8px; padding: 0; color: var(--level-color); font-size: 14px; line-height: 20px; font-weight: 500; letter-spacing: .015em; }
+.level-card, .public-levels .level-card, .deposit-card .level-card { display: flex; position: relative; flex-direction: column; min-width: 0; min-height: 0; padding: 24px 16px; background: linear-gradient(155deg, color-mix(in srgb, var(--level-color) 12%, var(--surface)), var(--surface) 65%); border: 1px solid color-mix(in srgb, var(--level-color) 30%, var(--line)); border-top: 3px solid var(--level-color); border-radius: 14px; box-shadow: none; }
+.level-card::before { content: ''; width: 32px; height: 3px; border-radius: 2px; background: var(--level-color); margin-bottom: 20px; }
+.level-card:hover { border-color: color-mix(in srgb, var(--level-color) 65%, var(--line)); }
+.level-card h3 { margin: 0 0 8px; padding: 0; color: var(--level-color); font-size: 14px; line-height: 20px; font-weight: 600; letter-spacing: .015em; }
+.level-card[data-tier='ULTRA'] h3 { background: none; color: var(--level-color); }
 .level-card .level-info { position: absolute; right: 8px; top: 8px; width: 44px; height: 44px; padding: 0; border: 0; background: none; border-radius: 6px; color: var(--text-muted); font-size: 14px; font-family: var(--font-sans); }
 .level-info:hover { background: var(--surface-hover); color: var(--text); }
 .level-detail { color: var(--text-secondary); min-height: 40px; margin: 0 0 24px; font-size: 12px; line-height: 16px; }
@@ -184,8 +185,22 @@ progress::-moz-progress-bar { background: var(--blue); }
 .deposit-card { padding: 32px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: none; }
 .deposit-card .level-cards { margin-top: 24px; }
 .deposit-card .level-choose, .deposit-card .level-details-link { display: none; }
+.deposit-card .level-cards { grid-template-columns: 1fr; gap: 8px; }
+.deposit-card .level-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; padding: 16px; border-top-width: 1px; border-left: 3px solid var(--level-color); }
+.deposit-card .level-card::before, .deposit-card .level-detail { display: none; }
+.deposit-card .level-card h3 { grid-column: 1; margin: 0; }
+.deposit-card .level-deposit-label { grid-column: 1; }
+.deposit-card .level-price { grid-column: 2; grid-row: 1 / span 2; margin: 0 36px 0 0; font-size: 24px; line-height: 32px; align-self: center; }
+.deposit-card .level-features { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 4px 16px; padding-top: 8px; border-top: 0; }
+.deposit-card .level-modes { min-height: 0; }
 .deposit-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
 .status-note, .deposit-progress { background: var(--surface-raised); color: var(--text-secondary); border: 1px solid var(--line); border-radius: 10px; box-shadow: none; }
+.deposit-intro { max-width: 640px; }
+.deposit-glow { display: none; }
+.deposit-intro > p { margin: 16px 0 0; }
+#deposit-message { padding: 14px 16px; font-size: 14px; line-height: 22px; }
+#deposit-message.error { color: #FF949C; border-color: #ED5967; background: #351B23; font-weight: 500; }
+.account-access-note { margin: 16px 0 0; color: var(--text-muted); font-size: 13px; line-height: 20px; }
 .form-message, .global-message { background: var(--error-bg); color: var(--error); border: 1px solid var(--error); border-radius: 6px; padding: 12px 16px; font-size: 14px; line-height: 20px; }
 .form-message.success { background: var(--success-bg); border-color: var(--success); color: var(--success); }
 .global-message { margin: 16px; }
@@ -416,6 +431,20 @@ body[data-auth='active'].sidebar-collapsed .app-shell { margin-left: 112px; }
 .preview-dialog { width: min(1040px, calc(100vw - 64px)); }
 .preview-dialog img { max-width: 100%; max-height: calc(100dvh - 160px); object-fit: contain; }
 .level-dialog #level-title { color: var(--level-color); }
+.level-dialog { text-align: left; border-top: 3px solid var(--level-color); }
+.level-dialog .guide-top { margin-bottom: 16px; align-items: center; }
+.level-dialog .guide-top h2 { margin: 0; }
+.level-dialog .level-purpose { margin: 0 0 24px; font-size: 16px; line-height: 24px; }
+.level-detail-list { margin: 0; padding: 0; }
+.level-detail-list > div { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 16px; align-items: start; padding: 16px 0; }
+.level-detail-list > div:last-child { border-bottom: 0; padding-bottom: 0; }
+.level-detail-list dt, .level-detail-list dd { margin: 0; min-width: 0; line-height: 22px; text-align: left; overflow-wrap: anywhere; }
+.level-detail-list dd { font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) {
+  .level-detail-list > div { grid-template-columns: 1fr; gap: 6px; }
+  .deposit-actions { flex-direction: column; align-items: stretch; }
+  .deposit-actions .button { width: 100%; padding-inline: 12px; white-space: normal; }
+}
 @media (min-width: 1024px) { body[data-auth='active'] .brand { display: none; } body[data-auth='active'] .view-title { display: block; font-size: 14px; color: var(--text-secondary); order: -1; } }
 @media (min-width: 768px) and (max-width: 1023px) {
   body[data-auth='active'] .app-sidebar { display: none; }
