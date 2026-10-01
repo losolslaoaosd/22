@@ -36,12 +36,24 @@ function dbMock() {
   };
   return { db, writes };
 }
-function request(expiry, screenshot = image, mode = 'Fast') {
+function request(expiry, screenshot = image, mode = 'Fast', language = 'ru') {
   return new Request('https://worker.example/api/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: screenshot, mode, expiry }),
+    body: JSON.stringify({ image: screenshot, mode, expiry, language }),
   });
 }
+
+test('English analyses request English descriptions and keep the same credit cost', async () => {
+  const { db, writes } = dbMock();
+  let prompt;
+  await withFetch(async (_url, options) => {
+    prompt = JSON.parse(options.body);
+    return response('completed', analysis);
+  }, () => analyze(request(3, image, 'Fast', 'en'), { DB: db, OPENAI_API_KEY: 'test' }, account));
+  assert.match(prompt.instructions, /на английском языке/);
+  assert.match(prompt.input[0].content[0].text, /Respond in English/);
+  assert.equal(writes.filter(write => write.sql === 'BATCH').length, 1);
+});
 function response(status, result, extra = {}) {
   return Response.json({ status, output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(result) }] }], ...extra });
 }
