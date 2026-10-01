@@ -7,7 +7,7 @@ const output = join(root, 'dist-site');
 const files = [
   'index.html',
   'account/index.html', 'app/index.html', 'owner/index.html',
-  'pages-config.js', 'app.js', 'blufin-ui.js',
+  'pages-config.js', 'app.js', 'blufin-ui.js', 'i18n.js', 'locales/ru.js', 'locales/en.js',
   'styles.css', 'liquid.css', 'blufin-ui.css', 'theme.css', 'premium.css', 'ui-system.css', 'apple.css',
   'favicon.svg', 'hero-bluefin.png', 'chart-candles.png',
   'icon-fast.png', 'icon-deep.png', 'icon-maximum.png',

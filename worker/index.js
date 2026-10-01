@@ -504,7 +504,7 @@ function responseText(data) {
     .flatMap(item => item.content || []).filter(item => item.type === 'output_text')
     .map(item => item.text || '').join('');
 }
-async function analyzeImage(env, image, mode, expiry) {
+async function analyzeImage(env, image, mode, expiry, language = 'ru') {
   if (!env.OPENAI_API_KEY) throw httpError(503, 'AI_NOT_CONFIGURED', 'Анализ ещё не подключён');
   const model = env.OPENAI_MODEL || 'gpt-5-mini';
   const tokenLimits = { Fast: [6000, 10000], Deep: [9000, 14000], Maximum: [12000, 18000] }[mode];
@@ -518,9 +518,9 @@ async function analyzeImage(env, image, mode, expiry) {
           model, store: false, max_output_tokens: maxOutputTokens,
           ...(model.startsWith('gpt-5') ? { reasoning: { effort: 'low' } } : {}),
           text: { format: { type: 'json_schema', name: 'chart_analysis', strict: true, schema } },
-          instructions: `Ты аналитик торговых графиков. Отвечай на русском ${mode === 'Fast' ? 'кратко' : mode === 'Deep' ? 'с разбором видимой структуры и альтернатив' : 'подробно, с оценкой видимых признаков и противоположного сценария'}. Определи торговую пару (pair), текущую цену (current_price) и таймфрейм (timeframe) только по тому, что читается на скриншоте TradingView, Binodex или другой платформы. Пара может быть обычной, OTC или криптовалютной. Если параметр не виден, верни null и укажи ограничение в limitations; не угадывай его. chart_visible означает, что виден именно ценовой график, а не просто интерфейс биржи. recent_candles_visible и sufficient_history описывают только видимые данные и не требуют идеального полного интерфейса. Если по видимой структуре возможен анализ, выбери UP или DOWN; если графика нет, выставь chart_visible=false. Не выдумывай живые котировки, внешнюю историю, другие таймфреймы и индикаторы. historical_match описывает только паттерны на скриншоте, ai_consensus означает согласованность видимых признаков. Выбранная пользователем экспирация: ${expiry} мин. Учитывай её при анализе, не выбирай другую длительность. Пиши кратко, по 1-2 предложения на поле, и не обещай результата. Если данных для отдельного текстового поля нет, так и скажи в этом поле.`,
+          instructions: `Ты аналитик торговых графиков. ${language === 'en' ? 'Все описательные поля ответа заполни на английском языке.' : 'Отвечай на русском языке.'} ${mode === 'Fast' ? 'Кратко' : mode === 'Deep' ? 'С разбором видимой структуры и альтернатив' : 'Подробно, с оценкой видимых признаков и противоположного сценария'}. Определи торговую пару (pair), текущую цену (current_price) и таймфрейм (timeframe) только по тому, что читается на скриншоте TradingView, Binodex или другой платформы. Пара может быть обычной, OTC или криптовалютной. Если параметр не виден, верни null и укажи ограничение в limitations; не угадывай его. chart_visible означает, что виден именно ценовой график, а не просто интерфейс биржи. recent_candles_visible и sufficient_history описывают только видимые данные и не требуют идеального полного интерфейса. Если по видимой структуре возможен анализ, выбери UP или DOWN; если графика нет, выставь chart_visible=false. Не выдумывай живые котировки, внешнюю историю, другие таймфреймы и индикаторы. historical_match описывает только паттерны на скриншоте, ai_consensus означает согласованность видимых признаков. Выбранная пользователем экспирация: ${expiry} мин. Учитывай её при анализе, не выбирай другую длительность. Пиши кратко, по 1-2 предложения на поле, и не обещай результата. Если данных для отдельного текстового поля нет, так и скажи в этом поле.`,
           input: [{ role: 'user', content: [
-            { type: 'input_text', text: `Проанализируй видимый график для экспирации ${expiry} мин. Определи параметры по скриншоту.` },
+            { type: 'input_text', text: language === 'en' ? `Analyze the visible chart for a ${expiry}-minute expiry. Identify parameters only from the screenshot. Respond in English.` : `Проанализируй видимый график для экспирации ${expiry} мин. Определи параметры по скриншоту.` },
             { type: 'input_image', image_url: image, detail: 'high' },
           ] }],
         }),
@@ -553,7 +553,7 @@ async function analyzeImage(env, image, mode, expiry) {
       console.warn('AI response failed shape validation', { attempt, responseId: data?.id });
       continue;
     }
-    for (const field of DESCRIPTION_FIELDS) if (!result[field].trim()) result[field] = 'Недостаточно данных на скриншоте.';
+    for (const field of DESCRIPTION_FIELDS) if (!result[field].trim()) result[field] = language === 'en' ? 'Not enough information in the screenshot.' : 'Недостаточно данных на скриншоте.';
     result.signal_duration_minutes = expiry;
     return result;
   }
@@ -583,6 +583,7 @@ async function analyze(request, env, account) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload))
     throw httpError(400, 'INVALID_JSON', 'Некорректный запрос анализа');
   const { image, preview = null, mode = 'Fast', expiry = 3 } = payload;
+  const language = payload.language === 'en' ? 'en' : 'ru';
   if (!Number.isInteger(expiry) || !EXPIRIES.includes(expiry)) throw httpError(400, 'INVALID_EXPIRY', 'Выберите экспирацию 1, 3, 5 или 15 минут');
   if (!tier.availableAiModes.includes(mode)) throw httpError(403, 'MODE_LOCKED', 'Этот режим доступен на более высоком уровне');
   if (!validImage(image)) throw httpError(400, 'INVALID_IMAGE', 'Изображение не удалось прочитать. Загрузите JPG, PNG или WebP.');
@@ -612,7 +613,7 @@ async function analyze(request, env, account) {
       privileged ? 1 : 0, tier.id, now, tier.signalLimit ?? 2147483647, now, cost, tier.creditsLimit).run();
   if (!reservation.meta.changes) throw httpError(429, 'RATE_LIMIT', 'Запрос уже выполняется, действует пауза между сигналами или лимит исчерпан.');
   try {
-    const result = await analyzeImage(env, image, mode, expiry);
+    const result = await analyzeImage(env, image, mode, expiry, language);
     const pairText = typeof result.pair === 'string' ? result.pair.trim().toUpperCase().split(':').at(-1).replace(/[\s_-]/g, '') : '';
     const knownPair = ASSETS.find(asset => asset === pairText || asset.replace('/', '') === pairText);
     const otc = /(?:\(OTC\)|OTC)$/.test(pairText);

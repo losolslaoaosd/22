@@ -3,23 +3,26 @@ import { flushSync } from "react-dom"
 import { useEffect, useState, type ReactNode } from "react"
 import { ArrowUpRight, ChartNoAxesCombined, History, Gem, CircleUserRound, Settings, ShieldCheck } from "lucide-react"
 import LatticeLoader from "@/components/LatticeLoader"
+import { tr, useLanguage } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import "./style.css"
 
 const assetRoot = new URL("/", window.location.origin)
 
 function HeaderActions() {
-  return <nav className="header-actions" aria-label="Быстрые действия">
-    <Button id="header-account" type="button" variant="ghost" size="sm" className="hidden">Аккаунт</Button>
-    <Button asChild variant="outline" size="sm" className="header-contact"><a href="https://t.me/bluefin_m" target="_blank" rel="noopener noreferrer">Связаться со мной <ArrowUpRight data-icon="inline-end" aria-hidden="true" /></a></Button>
-    <Button id="header-owner" type="button" variant="ghost" size="sm" className="hidden">Панель владельца</Button>
+  useLanguage()
+  return <nav className="header-actions" aria-label={tr("r.quickActions")}>
+    <Button id="header-account" type="button" variant="ghost" size="sm" className="hidden">{tr("h.26")}</Button>
+    <Button asChild variant="outline" size="sm" className="header-contact"><a href="https://t.me/bluefin_m" target="_blank" rel="noopener noreferrer">{tr("h.28")} <ArrowUpRight data-icon="inline-end" aria-hidden="true" /></a></Button>
+    <Button id="header-owner" type="button" variant="ghost" size="sm" className="hidden">{tr("h.24")}</Button>
   </nav>
 }
 
 function LandingAccess() {
+  useLanguage()
   return <div className="hero-cta">
-    <Button id="begin-button" type="button" className="hero-submit">Получить доступ <ArrowUpRight aria-hidden="true" /></Button>
-    <button id="landing-login" className="hero-register-link" type="button">Уже есть аккаунт? Войти</button>
+    <Button id="begin-button" type="button" className="hero-submit">{tr("h.33")} <ArrowUpRight aria-hidden="true" /></Button>
+    <button id="landing-login" className="hero-register-link" type="button">{tr("h.35")}</button>
   </div>
 }
 

@@ -67,7 +67,8 @@ body[data-auth="active"].sidebar-collapsed .app-shell { padding-left: 110px; }
 .public-levels { margin: 50px auto 90px; }
 .public-levels .level-cards { overflow-x: auto; scroll-snap-type: x mandatory; }
 .public-levels .level-card { min-width: 190px; flex: 1; scroll-snap-align: start; background: var(--surface); box-shadow: none; border: 1px solid var(--line); border-top: 2px solid var(--level-color); }
-.landing-steps, .faq, .landing-final { width: min(100%, 1080px); margin: 0 auto 100px; }
+.landing-steps, .landing-final { width: min(100%, 1080px); margin: 0 auto 100px; }
+.faq { width: min(100%, 880px); margin: 0 auto 100px; interpolate-size: allow-keywords; }
 .landing-steps h2, .faq h2, .landing-final h2 { font-size: clamp(28px, 3vw, 40px); letter-spacing: -.05em; font-weight: 600; }
 .landing-steps > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
 .landing-steps p { border-top: 1px solid var(--line); padding-top: 18px; display: flex; flex-direction: column; gap: 7px; }
@@ -76,11 +77,18 @@ body[data-auth="active"].sidebar-collapsed .app-shell { padding-left: 110px; }
 .landing-steps p small, .landing-final p { color: var(--secondary); font-size: 13px; line-height: 1.6; }
 .faq details { border-bottom: 1px solid var(--line); }
 .faq details:first-of-type { border-top: 1px solid var(--line); }
-.faq summary { list-style: none; cursor: pointer; padding: 21px 30px 21px 0; position: relative; font-size: 16px; font-weight: 550; }
+.faq summary { list-style: none; cursor: pointer; padding: 22px 34px 22px 0; position: relative; font-size: 16px; line-height: 1.5; font-weight: 550; }
 .faq summary::-webkit-details-marker { display: none; }
-.faq summary::after { content: "+"; position: absolute; right: 3px; color: #9aaed0; }
-.faq details[open] summary::after { content: "−"; }
+.faq summary::after { content: ""; position: absolute; right: 7px; top: 50%; width: 8px; height: 8px; border-right: 1.5px solid #9aaed0; border-bottom: 1.5px solid #9aaed0; transform: translateY(-65%) rotate(45deg); transition: transform .2s ease; }
+.faq details[open] summary::after { transform: translateY(-25%) rotate(225deg); }
+.faq summary:hover { color: #fff; }
+.faq details::details-content { block-size: 0; overflow: hidden; transition: block-size .22s ease, content-visibility .22s ease; transition-behavior: allow-discrete; }
+.faq details[open]::details-content { block-size: auto; }
 .faq details p { color: var(--secondary); max-width: 760px; margin: 0 0 22px; line-height: 1.65; font-size: 14px; }
+.language-switch { display: inline-flex; flex: none; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: #ffffff08; }
+.language-switch button { min-width: 31px; min-height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--secondary); font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.language-switch button:hover { color: #fff; }
+.language-switch button[aria-pressed="true"] { background: #ffffff1a; color: #f4f6fa; }
 .landing-final { text-align: center; padding: 60px 0 30px; }
 .landing-final .button { margin-top: 20px; }
 
@@ -295,6 +303,7 @@ body[data-auth="active"].sidebar-collapsed .app-shell { padding-left: 110px; }
   .history-detail-top #history-close { display: none; }
 }
 @media (max-width: 760px) {
+  #header-actions-root { display: none; }
   .hero-grid { min-height: auto; }
   .hero-visual { opacity: .35; height: 180px; min-height: 180px; }
   .hero-person { max-height: 180px; }
@@ -310,7 +319,14 @@ body[data-auth="active"].sidebar-collapsed .app-shell { padding-left: 110px; }
   .level-benefit { gap: 8px; }
   .level-benefit strong { width: 82px; }
 }
+@media (max-width: 520px) {
+  .site-header .account-widget { display: none; }
+  .site-header .brand { font-size: 19px; gap: 6px; }
+  .site-header .brand-mark { width: 30px; height: 30px; }
+  .site-header .header-right { gap: 6px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .lattice-cells span, #terminal-result { animation: none; }
+  .faq details::details-content, .faq summary::after { transition: none; }
   html { scroll-behavior: auto; }
 }
