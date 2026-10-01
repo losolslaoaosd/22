@@ -2,7 +2,8 @@ import { useEffect, useState } from "react"
 
 type Language = "ru" | "en"
 type I18n = { language: Language; t: (key: string) => string }
-const i18n = (window as Window & { BluFinI18n: I18n }).BluFinI18n
+declare global { interface Window { BluFinI18n: I18n } }
+const i18n = window.BluFinI18n
 
 export const tr = (key: string) => i18n.t(key)
 

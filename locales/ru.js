@@ -435,4 +435,18 @@ window.BLUFIN_MESSAGES.ru = {
   "r.heroDescription": "Загрузите график и получите разбор рыночной структуры, направления и торгового сценария.",
   "r.done": "Готово",
   "r.error": "Ошибка",
-  "r.analysis": "Анализ"};
+  "r.analysis": "Анализ",
+  "still.levels": "Уровни",
+  "still.levelHeading": "Больше глубины. Больше возможностей.",
+  "still.screenshot": "AI-анализ по скриншоту",
+  "still.faqIntro": "Всё, что нужно знать перед первым анализом.",
+  "still.contact": "Задать вопрос в Telegram",
+  "still.seeLevels": "Сравнить уровни",
+  "still.cycle": "Лимиты обновляются через 24 часа после первого успешного анализа.",
+  "still.deposit": "Подтверждённый депозит",
+  "still.choose": "Выбрать {0}",
+  "still.details": "Условия уровня",
+  "still.pause": "Приостановить фон",
+  "still.play": "Включить анимацию фона",
+  "still.features": "Возможности уровня"
+};

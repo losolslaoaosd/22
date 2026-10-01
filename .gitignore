@@ -4,3 +4,7 @@ node_modules/
 .playwright-cli/
 dist-ui/
 dist-site/
+
+.browser-cache/
+.wrangler/
+.qa/

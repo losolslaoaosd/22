@@ -38,8 +38,9 @@ function renderLevels() {
     card.style.setProperty('--level-color', level.color || '#8994A7');
     const title = document.createElement('h3'); title.textContent = level.id;
     const info = document.createElement('button'); info.type = 'button'; info.className = 'level-info';
-    info.dataset.levelInfo = level.id; info.setAttribute('aria-label', t("d.1", level.id)); info.textContent = '?';
-    const price = document.createElement('strong'); price.className = 'level-price'; price.textContent = t("d.2", money(level.minDeposit));
+    info.dataset.levelInfo = level.id; info.setAttribute('aria-label', t("d.1", level.id)); info.textContent = 'i';
+    const depositLabel = uiNode('span', t('still.deposit'), 'level-deposit-label');
+    const price = document.createElement('strong'); price.className = 'level-price'; price.textContent = money(level.minDeposit);
     const signals = document.createElement('strong'); signals.className = 'level-signals';
     signals.textContent = level.signalLimit === null ? t("d.3") : t("d.6", level.signalLimit, level.signalLimit === 3 ? t("d.4") : t("d.5"));
     const extra = document.createElement('div'); extra.className = 'level-extra';
@@ -48,7 +49,10 @@ function renderLevels() {
     const abilities = document.createElement('div'); abilities.className = 'level-modes'; abilities.textContent = modes;
     const detail = document.createElement('small'); detail.className = 'level-detail';
     detail.textContent = level.id === 'ULTRA' ? t("d.7") : level.id === 'ADVANCED' ? t("d.8") : level.id === 'PRO' ? t("d.9") : level.id === 'PLUS' ? t("h.187") : t("d.10");
-    card.append(title, info, price, signals, extra, abilities, detail); return card;
+    const features = uiNode('div', '', 'level-features'); features.setAttribute('aria-label', t('still.features')); features.append(signals, extra, abilities);
+    const action = uiNode('button', t('still.choose', level.id), 'button secondary level-choose'); action.type = 'button'; action.dataset.levelChoose = level.id;
+    const detailButton = uiNode('button', t('still.details'), 'text-link level-details-link'); detailButton.type = 'button'; detailButton.dataset.levelInfo = level.id;
+    card.append(title, info, detail, depositLabel, price, features, action, detailButton); return card;
   });
   $('#public-level-cards').replaceChildren(...cards);
   $('#activation-levels').replaceChildren(...cards.map(card => card.cloneNode(true)));
@@ -337,7 +341,10 @@ function routeFromStatus(historyMode = 'replace') {
   }
   return show(['landing', 'login', 'register', 'access'].includes(view) ? view : 'login', historyMode);
 }
-window.addEventListener('popstate', () => routeFromStatus('replace'));
+window.addEventListener('popstate', () => {
+  routeFromStatus('replace');
+  if (window.location.hash) requestAnimationFrame(() => document.getElementById(window.location.hash.slice(1))?.scrollIntoView());
+});
 async function api(url, options = {}) {
   if (staticPreview) throw new Error(t("d.74"));
   let response;
@@ -873,7 +880,39 @@ function createPreview(source) {
     image.src = source;
   });
 }
+// Mobile drawer focus management supplements the native dialog behavior used elsewhere.
+function initDrawer() {
+  const menu = document.getElementById('site-menu');
+  const toggle = document.getElementById('site-menu-toggle');
+  const close = () => { menu.classList.add('hidden'); toggle.setAttribute('aria-expanded', 'false'); };
+  document.getElementById('site-menu-close')?.addEventListener('click', close);
+  document.getElementById('menu-backdrop')?.addEventListener('click', close);
+  let wasOpen = false;
+  const sync = () => {
+    const mobile = matchMedia('(max-width: 767px)').matches;
+    const open = !menu.classList.contains('hidden');
+    document.body.classList.toggle('menu-open', mobile && open);
+    if (mobile && open) { menu.setAttribute('role', 'dialog'); menu.setAttribute('aria-modal', 'true'); }
+    else { menu.removeAttribute('role'); menu.removeAttribute('aria-modal'); }
+    if (mobile && open && !wasOpen) document.getElementById('site-menu-close')?.focus();
+    if (mobile && !open && wasOpen && menu.contains(document.activeElement)) toggle.focus();
+    wasOpen = open;
+  };
+  new MutationObserver(sync).observe(menu, { attributes: true, attributeFilter: ['class'] });
+  matchMedia('(max-width: 767px)').addEventListener('change', sync);
+  document.addEventListener('keydown', event => {
+    if (menu.classList.contains('hidden')) return;
+    if (event.key === 'Escape') { close(); toggle.focus(); }
+    if (event.key !== 'Tab' || !matchMedia('(max-width: 767px)').matches) return;
+    const elements = [...menu.querySelectorAll('a[href], button:not([disabled])')].filter(el => el.getClientRects().length);
+    const first = elements[0], last = elements.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  });
+}
+
 async function init() {
+  initDrawer();
   showTerminal('empty');
   renderLevels();
   document.addEventListener('click', event => {

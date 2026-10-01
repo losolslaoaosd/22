@@ -1,45 +1,112 @@
 import { createRoot } from "react-dom/client"
 import { flushSync } from "react-dom"
-import { useEffect, useState, type ReactNode } from "react"
-import { ArrowUpRight, ChartNoAxesCombined, History, Gem, CircleUserRound, Settings, ShieldCheck } from "lucide-react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import { ChartNoAxesCombined, History, Gem, CircleUserRound, Settings, ShieldCheck, Upload, ChevronLeft, ChevronDown, Pause, Play, Info, X, Zap, Layers, Scan } from "lucide-react"
 import LatticeLoader from "@/components/LatticeLoader"
 import { tr, useLanguage } from "@/lib/i18n"
 import { Button } from "@/components/ui/button"
 import "./style.css"
 
-const assetRoot = new URL("/", window.location.origin)
-
 function HeaderActions() {
   useLanguage()
   return <nav className="header-actions" aria-label={tr("r.quickActions")}>
-    <Button id="header-account" type="button" variant="ghost" size="sm" className="hidden">{tr("h.26")}</Button>
-    <Button asChild variant="outline" size="sm" className="header-contact"><a href="https://t.me/bluefin_m" target="_blank" rel="noopener noreferrer">{tr("h.28")} <ArrowUpRight data-icon="inline-end" aria-hidden="true" /></a></Button>
-    <Button id="header-owner" type="button" variant="ghost" size="sm" className="hidden">{tr("h.24")}</Button>
+    <Button id="header-login" data-route="login" variant="ghost" className="public-login">{tr("h.23")}</Button>
+    <Button id="header-account" variant="ghost" className="hidden">{tr("h.26")}</Button>
+    <Button id="header-owner" variant="ghost" className="hidden">{tr("h.24")}</Button>
+  </nav>
+}
+
+function PublicNavigation() {
+  useLanguage()
+  const nav = useRef<HTMLElement>(null)
+  const [active, setActive] = useState("how")
+  const [indicator, setIndicator] = useState({ x: 0, width: 0 })
+  useEffect(() => {
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+      if (visible[0]) setActive(visible[0].target.id)
+    }, { rootMargin: "-15% 0px -65% 0px" })
+    ;["how", "levels", "faq"].forEach(id => { const section = document.getElementById(id); if (section) observer.observe(section) })
+    return () => observer.disconnect()
+  }, [])
+  const howLabel = tr("h.36"), faqLabel = tr("h.46")
+  useLayoutEffect(() => {
+    const update = () => {
+      const item = nav.current?.querySelector<HTMLElement>(`[href="#${active}"]`)
+      if (item) setIndicator({ x: item.offsetLeft, width: item.offsetWidth })
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    if (nav.current) observer.observe(nav.current)
+    return () => observer.disconnect()
+  }, [active, howLabel, faqLabel])
+  return <nav ref={nav} className="public-nav" aria-label={tr("h.4")}>
+    {[["how", "h.36"], ["levels", "still.levels"], ["faq", "h.46"]].map(([id, key]) => <a key={id} href={`#${id}`} aria-current={active === id ? "location" : undefined} onClick={() => setActive(id)}>{tr(key)}</a>)}
+    <span className="nav-underline" aria-hidden="true" style={{ width: indicator.width, transform: `translateX(${indicator.x}px)` }} />
   </nav>
 }
 
 function LandingAccess() {
   useLanguage()
   return <div className="hero-cta">
-    <Button id="begin-button" type="button" className="hero-submit">{tr("h.33")} <ArrowUpRight aria-hidden="true" /></Button>
+    <Button id="begin-button" className="hero-submit">{tr("h.33")}</Button>
     <button id="landing-login" className="hero-register-link" type="button">{tr("h.35")}</button>
   </div>
 }
 
-function HeroTrails() {
-  return <svg className="hero-trails" viewBox="0 0 1400 650" preserveAspectRatio="none" aria-hidden="true">
-    <defs><linearGradient id="hero-trail-ink" x1="0" y1="1" x2="1" y2="0"><stop stopColor="#1b315b" stopOpacity=".08" /><stop offset=".55" stopColor="#3359a4" stopOpacity=".6" /><stop offset="1" stopColor="#7994c5" stopOpacity=".8" /></linearGradient></defs>
-    <path d="M405 602 C600 565 740 520 900 396 S1190 210 1425 80" />
-    <path d="M515 645 C720 615 850 550 1010 442 S1250 295 1435 180" />
-    <path d="M630 664 C790 630 960 580 1100 500 S1310 390 1450 310" />
-    <path d="M720 695 C865 645 1000 620 1150 548 S1360 450 1450 395" />
-  </svg>
+// Original filament field; no proprietary registry code is bundled.
+function FilamentField() {
+  useLanguage()
+  const canvas = useRef<HTMLCanvasElement>(null)
+  const [paused, setPaused] = useState(() => matchMedia("(prefers-reduced-motion: reduce)").matches)
+  useEffect(() => {
+    const media = matchMedia("(prefers-reduced-motion: reduce)")
+    const update = () => setPaused(media.matches)
+    media.addEventListener("change", update)
+    update()
+    return () => media.removeEventListener("change", update)
+  }, [])
+  useEffect(() => {
+    const element = canvas.current, context = element?.getContext("2d")
+    if (!element || !context) return
+    let width = 0, height = 0, frame = 0, visible = true, last = 0
+    const draw = (time: number) => {
+      context.clearRect(0, 0, width, height)
+      const phase = paused ? .5 : time * .000045
+      for (let thread = 0; thread < 64; thread++) {
+        const n = thread / 63
+        context.beginPath()
+        for (let step = 0; step <= 100; step++) {
+          const p = step / 100, x = width * (.2 + p * .95)
+          const bend = Math.sin(p * 5.8 + n * 1.8 + phase) * height * .1
+          const ripple = Math.sin(p * 14 + n * 3 - phase) * height * .024
+          const y = height * (.95 - p * .87 + (n - .5) * .58) + bend + ripple
+          if (step === 0) context.moveTo(x, y); else context.lineTo(x, y)
+        }
+        const opacity = .08 + Math.pow(Math.sin(n * Math.PI), 5) * .25
+        context.strokeStyle = thread % 5 === 0 ? `rgba(169,191,232,${opacity})` : `rgba(198,203,212,${opacity * .65})`
+        context.lineWidth = thread % 5 === 0 ? .8 : .5
+        context.stroke()
+      }
+    }
+    const loop = (time: number) => {
+      if (!paused && visible && !document.hidden && time - last > 33) { draw(time); last = time }
+      frame = requestAnimationFrame(loop)
+    }
+    const resize = () => {
+      const rect = element.getBoundingClientRect(); width = rect.width; height = rect.height
+      const ratio = Math.min(devicePixelRatio || 1, 1.5)
+      element.width = width * ratio; element.height = height * ratio
+      context.setTransform(ratio, 0, 0, ratio, 0, 0); draw(performance.now())
+    }
+    const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(element)
+    const intersection = new IntersectionObserver(entries => { visible = entries[0].isIntersecting }); intersection.observe(element)
+    resize(); if (!paused) frame = requestAnimationFrame(loop)
+    return () => { cancelAnimationFrame(frame); resizeObserver.disconnect(); intersection.disconnect() }
+  }, [paused])
+  return <><canvas ref={canvas} className="filament-canvas" aria-hidden="true" /><button type="button" className="motion-control" onClick={() => setPaused(!paused)} aria-label={tr(paused ? "still.play" : "still.pause")} title={tr(paused ? "still.play" : "still.pause")} aria-pressed={paused}>{paused ? <Play size={16} /> : <Pause size={16} />}</button></>
 }
-
-function mount(element: Element, component: ReactNode) {
-  flushSync(() => createRoot(element).render(component))
-}
-
+function mount(element: Element, component: ReactNode) { flushSync(() => createRoot(element).render(component)) }
 function AnalysisLoader() {
   const [status, setStatus] = useState<"working" | "done" | "error">("working")
   useEffect(() => {
@@ -53,51 +120,31 @@ function AnalysisLoader() {
   }, [])
   return <LatticeLoader status={status} />
 }
-
 const loader = document.querySelector("#lattice-loader")
 if (loader) mount(loader, <AnalysisLoader />)
-
 const navIcons = { dashboard: ChartNoAxesCombined, history: History, level: Gem, account: CircleUserRound, settings: Settings, "owner-stats-view": ShieldCheck }
-document.querySelectorAll<HTMLButtonElement>("[data-route]").forEach((button) => {
-  const route = button.dataset.route as keyof typeof navIcons
-  const Icon = navIcons[route]
+document.querySelectorAll<HTMLButtonElement>("[data-route]").forEach(button => {
+  const Icon = navIcons[button.dataset.route as keyof typeof navIcons]
   if (!Icon || !button.closest(".app-sidebar, .mobile-tabs")) return
   const existing = button.querySelector("span[aria-hidden]")
-  if (existing) existing.remove()
-  else if (button.firstChild?.nodeType === Node.TEXT_NODE) button.firstChild.remove()
-  const host = document.createElement("span")
-  host.className = "nav-icon"
-  host.setAttribute("aria-hidden", "true")
-  button.prepend(host)
-  mount(host, <Icon size={20} strokeWidth={1.8} />)
+  if (existing) existing.remove(); else if (button.firstChild?.nodeType === Node.TEXT_NODE) button.firstChild.remove()
+  const host = document.createElement("span"); host.className = "nav-icon"; host.setAttribute("aria-hidden", "true")
+  button.prepend(host); mount(host, <Icon size={20} strokeWidth={1.7} />)
 })
-
+const iconTargets = [[".upload-icon", Upload], ["#sidebar-collapse", ChevronLeft], ["#mode-select > span", ChevronDown], [".mode-choice:nth-child(1) .mode-icon", Zap], [".mode-choice:nth-child(2) .mode-icon", Layers], [".mode-choice:nth-child(3) .mode-icon", Scan]] as const
+for (const [selector, Icon] of iconTargets) {
+  const element = document.querySelector(selector)
+  if (element) { element.replaceChildren(); mount(element, <Icon size={20} strokeWidth={1.7} />) }
+}
+document.querySelectorAll(".guide-top > button, #remove-file, #preview-close, #site-menu-close").forEach(element => { element.replaceChildren(); mount(element, <X size={20} strokeWidth={1.7} />) })
+document.querySelectorAll(".mode-info").forEach(element => { element.replaceChildren(); mount(element, <Info size={16} />) })
 const header = document.querySelector(".site-menu-wrap")
 if (header?.parentElement) {
-  const host = document.createElement("div")
-  host.id = "header-actions-root"
-  header.before(host)
-  mount(host, <HeaderActions />)
+  const host = document.createElement("div"); host.id = "header-actions-root"; header.before(host); mount(host, <HeaderActions />)
 }
-
-const heroGrid = document.querySelector(".hero-grid")
+const navigation = document.querySelector("#public-navigation")
+if (navigation) mount(navigation, <PublicNavigation />)
 const actions = document.querySelector(".hero-actions")
-const visual = document.querySelector(".hero-visual")
-if (heroGrid && actions && visual) {
-  const art = document.createElement("div")
-  art.className = "hero-art"
-  heroGrid.prepend(art)
-  mount(art, <HeroTrails />)
-  actions.replaceChildren()
-  mount(actions, <LandingAccess />)
-  visual.replaceChildren()
-  mount(visual, <>
-    <div className="hero-chart-art" aria-hidden="true">
-      <img className="hero-candles" src={new URL("chart-candles.png", assetRoot).href} alt="" />
-      <svg className="hero-growth" viewBox="0 0 900 420" preserveAspectRatio="none">
-        <path d="M18 355 C125 347 180 322 258 330 S395 280 465 293 S570 238 645 233 S755 132 880 56" />
-        <path d="M18 380 C150 370 245 350 319 346 S485 310 545 272 S730 205 880 123" />
-      </svg>
-    </div>
-  </>)
-}
+if (actions) { actions.replaceChildren(); mount(actions, <LandingAccess />) }
+const field = document.querySelector("#hero-field")
+if (field) mount(field, <FilamentField />)

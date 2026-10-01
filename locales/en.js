@@ -481,4 +481,18 @@ window.BLUFIN_MESSAGES.en = {
   "r.heroDescription": "Upload a chart to review market structure, direction and a trading scenario.",
   "r.done": "Done",
   "r.error": "Error",
-  "r.analysis": "Analysis"};
+  "r.analysis": "Analysis",
+  "still.levels": "Levels",
+  "still.levelHeading": "More depth. More possibilities.",
+  "still.screenshot": "AI analysis from a screenshot",
+  "still.faqIntro": "What to know before your first analysis.",
+  "still.contact": "Ask a question on Telegram",
+  "still.seeLevels": "Compare levels",
+  "still.cycle": "Limits reset 24 hours after your first successful analysis.",
+  "still.deposit": "Confirmed deposit",
+  "still.choose": "Choose {0}",
+  "still.details": "Level details",
+  "still.pause": "Pause background",
+  "still.play": "Play background animation",
+  "still.features": "Level features"
+};
