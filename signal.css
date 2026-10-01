@@ -1,0 +1,28 @@
+/* Signal-only refinements on top of the restored compact interface. */
+#signal-hero { --signal-color: #65FF52; }
+#signal-hero.direction-down { --signal-color: #FF3F5F; }
+#signal-hero .direction-curve {
+  width: 45%; max-width: 300px; min-width: 96px; height: auto;
+  flex: 0 1 300px; aspect-ratio: 348 / 164;
+  color: var(--signal-color); stroke: currentColor; stroke-width: 3;
+}
+.direction-curve .curve-halo { stroke-width: 20; opacity: .28; filter: blur(12px); }
+.direction-curve .curve-bloom { stroke-width: 7; opacity: .6; filter: blur(4px); }
+.direction-curve .curve-line { filter: drop-shadow(0 0 4px currentColor); }
+.direction-curve .curve-energy {
+  stroke: #fff; stroke-width: 2; opacity: .9; stroke-dasharray: 8 92;
+  animation: curve-energy 3.8s linear infinite;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.direction-curve .curve-tip {
+  stroke-width: 3.5; filter: drop-shadow(0 0 6px currentColor);
+  animation: signal-tip 2.2s ease-in-out infinite;
+}
+@keyframes curve-energy { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+.expired .curve-energy, .expired .curve-tip { animation-play-state: paused; }
+@media (max-width: 559px) {
+  #signal-hero .direction-curve { width: 42%; flex-basis: 42%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .direction-curve .curve-energy { display: none; }
+}
